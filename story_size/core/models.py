@@ -14,12 +14,12 @@ class CodeSummary(BaseModel):
     db_migrations_estimated: int
     languages_seen: List[str]
 
-class AuditFootnote(BaseModel):
-    scope: str
-    memory_ops: List[str]
-    logs_touched: List[str]
-    websearch: bool
-    gating: str
+class ScoreExplanations(BaseModel):
+    dc_explanation: str
+    ic_explanation: str
+    ib_explanation: str
+    ds_explanation: str
+    nr_explanation: str
 
 class Estimation(BaseModel):
     story_points: int
@@ -29,4 +29,4 @@ class Estimation(BaseModel):
     confidence: float
     rationale: List[str]
     code_summary: CodeSummary
-    audit_footnote: AuditFootnote
+    score_explanations: ScoreExplanations

@@ -8,7 +8,7 @@ from story_size.core.docs import read_documents
 from story_size.core.code_analysis import analyze_code
 from story_size.core.ai_client import score_factors
 from story_size.core.scoring import calculate_complexity_score, map_to_story_points, get_confidence
-from story_size.core.models import Estimation, CodeSummary, AuditFootnote
+from story_size.core.models import Estimation, CodeSummary
 
 app = typer.Typer()
 
@@ -19,7 +19,6 @@ def main(
     paths: Optional[str] = typer.Option(None, "--paths", help="Comma-separated subpaths inside code-dir to prioritise."),
     languages: Optional[str] = typer.Option(None, "--languages", help="Subset of: csharp,typescript,javascript,dart."),
     output: str = typer.Option("text", "--output", help="Output mode (json|text)."),
-    scope: str = typer.Option("project:default/org:default", "--scope", help="Used for audit_footnote.scope."),
     config: Optional[Path] = typer.Option(None, "--config", help="Config file for model endpoint, weights, mapping ranges, etc."),
 ):
     """
@@ -42,7 +41,7 @@ def main(
 
     code_analysis_summary = analyze_code(code_dir, paths=parsed_paths, languages=parsed_languages)
 
-    factors = score_factors(doc_text, code_analysis_summary, {}, config_data)
+    factors, score_explanations = score_factors(doc_text, code_analysis_summary, {}, config_data)
 
     complexity_score = calculate_complexity_score(factors, config_data.get("weights", {}))
     story_points = map_to_story_points(complexity_score, config_data.get("mapping", {}))
@@ -55,14 +54,7 @@ def main(
         languages_seen=code_analysis_summary["languages_seen"]
     )
 
-    audit_footnote = AuditFootnote(
-        scope=scope,
-        memory_ops=[],
-        logs_touched=[],
-        websearch=False,
-        gating="passed"
-    )
-
+    
     estimation = Estimation(
         story_points=story_points,
         scale=[1, 2, 3, 5, 8, 13],
@@ -71,7 +63,7 @@ def main(
         confidence=confidence,
         rationale=[], # Placeholder
         code_summary=code_summary,
-        audit_footnote=audit_footnote
+        score_explanations=score_explanations
     )
 
     if output == "json":
@@ -79,11 +71,13 @@ def main(
     else:
         print(f"Suggested: {estimation.story_points} story points (confidence {estimation.confidence:.2f}), complexity_score={estimation.complexity_score}")
         print(f"Factors: DC={estimation.factors.dc}, IC={estimation.factors.ic}, IB={estimation.factors.ib}, DS={estimation.factors.ds}, NR={estimation.factors.nr}")
-        print("\nRationale:")
-        for line in estimation.rationale:
-            print(f"- {line}")
-        print("\nAuditFootnote:")
-        print(estimation.audit_footnote.model_dump_json())
+
+        print("\nScore Explanations:")
+        print(f"• DC ({estimation.factors.dc}/5): {estimation.score_explanations.dc_explanation}")
+        print(f"• IC ({estimation.factors.ic}/5): {estimation.score_explanations.ic_explanation}")
+        print(f"• IB ({estimation.factors.ib}/5): {estimation.score_explanations.ib_explanation}")
+        print(f"• DS ({estimation.factors.ds}/5): {estimation.score_explanations.ds_explanation}")
+        print(f"• NR ({estimation.factors.nr}/5): {estimation.score_explanations.nr_explanation}")
 
 
 
