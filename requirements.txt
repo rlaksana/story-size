@@ -1,0 +1,7 @@
+typer
+pydantic
+pyyaml
+requests
+pypdf
+python-docx
+openpyxl
