@@ -19,7 +19,6 @@ A local Python CLI tool that analyzes documentation and a codebase to estimate s
 -   `--paths <relative_paths>`: Comma-separated subpaths inside `code-dir` to prioritise.
 -   `--languages <list>`: Subset of: `csharp`, `typescript`, `javascript`, `dart`.
 -   `--output json|text`: Output mode (default: `text`).
--   `--scope <string>`: Used for `audit_footnote.scope` (e.g., `project:billing/org:acme`).
 -   `--config <path>`: Path to a `config.yml` file to override default settings.
 
 ## Building the Executable
