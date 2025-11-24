@@ -1,0 +1,445 @@
+import os
+import json
+import requests
+from typing import Dict, List, Optional, Tuple
+from story_size.core.models import (
+    PlatformDetection, PlatformAnalysis, CompleteAnalysis,
+    PlatformRequirement, EnhancedCodeAnalysis
+)
+from story_size.core.ai_client import score_factors as traditional_score_factors
+
+class PlatformAwareAIClient:
+    def __init__(self, config_data: dict):
+        self.config_data = config_data
+        self.llm_config = config_data.get("llm", {})
+        self.api_key_env = self.llm_config.get("api_key_env", "ZAI_API_KEY")
+        self.api_key = os.environ.get(self.api_key_env)
+
+        if not self.api_key:
+            raise ValueError(f"API key not found in environment variable: {self.api_key_env}")
+
+        self.headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self.api_key}",
+            "anthropic-version": "2023-06-01",
+        }
+
+    async def detect_platforms(self, doc_summary: str, code_analysis: EnhancedCodeAnalysis) -> PlatformDetection:
+        """Stage 1: Detect required platforms"""
+
+        platform_structure = self._generate_platform_structure_analysis(code_analysis)
+
+        system_prompt = """
+Analyze this work item and available codebase structure.
+
+TASK: Determine which platforms are needed and assess complexity.
+
+AVAILABLE CODE STRUCTURE:
+{platform_structure}
+
+PLATFORMS TO CONSIDER:
+- Frontend (UI/UX, web application, components)
+- Backend (API, services, database, business logic)
+- Mobile (iOS/Android apps, cross-platform)
+- DevOps/Infrastructure (deployment, CI/CD, infrastructure)
+
+WORK ITEM TYPES:
+- feature: New functionality
+- bugfix: Fix defects
+- enhancement: Improve existing functionality
+- refactor: Code restructuring
+- research: Investigation/POC
+
+COMPLEXITY LEVELS:
+- simple: Straightforward implementation
+- moderate: Some complexity or integration
+- complex: Multiple systems or complex logic
+- very_complex: High complexity, high risk
+
+RESPONSE FORMAT (JSON):
+{
+  "platform_requirements": {
+    "frontend": {"required": true, "scope": "high|medium|low", "technologies": ["react", "typescript"]},
+    "backend": {"required": true, "scope": "high|medium|low", "technologies": ["dotnet", "sql"]},
+    "mobile": {"required": false, "scope": "high|medium|low", "technologies": []},
+    "devops": {"required": true, "scope": "high|medium|low", "technologies": ["docker", "k8s"]}
+  },
+  "work_item_type": "feature|bugfix|enhancement|refactor|research",
+  "complexity_level": "simple|moderate|complex|very_complex",
+  "estimated_platforms": ["frontend", "backend"],
+  "confidence": 0.85,
+  "reasoning": "Detailed explanation of why these platforms are needed based on the work item"
+}
+
+Work Item Documents:
+---
+{doc_summary}
+---
+"""
+
+        user_prompt = system_prompt.format(
+            platform_structure=platform_structure,
+            doc_summary=doc_summary
+        )
+
+        response_data = await self._call_llm(user_prompt)
+
+        # Parse platform requirements
+        platform_requirements = {}
+        for platform, req_data in response_data["platform_requirements"].items():
+            platform_requirements[platform] = PlatformRequirement(**req_data)
+
+        return PlatformDetection(
+            platform_requirements=platform_requirements,
+            work_item_type=response_data["work_item_type"],
+            complexity_level=response_data["complexity_level"],
+            estimated_platforms=response_data["estimated_platforms"],
+            confidence=response_data["confidence"],
+            reasoning=response_data["reasoning"]
+        )
+
+    async def analyze_platform(self,
+                             platform: str,
+                             doc_summary: str,
+                             code_analysis: EnhancedCodeAnalysis,
+                             platform_detection: PlatformDetection) -> PlatformAnalysis:
+        """Stage 2: Detailed platform-specific analysis"""
+
+        # Get platform-specific code summary
+        platform_summary = code_analysis.platform_summaries.get(platform)
+
+        if not platform_summary or platform_summary.files_estimated == 0:
+            # Return empty analysis for platforms without code
+            return PlatformAnalysis(
+                platform=platform,
+                factors={},
+                explanation=f"No {platform} code detected in the repository.",
+                recommended_approach="",
+                estimated_hours={"min": 0, "max": 0},
+                key_components=[],
+                key_challenges=[]
+            )
+
+        platform_prompt = self._get_platform_specific_prompt(platform)
+        platform_context = self._generate_platform_context(platform_summary, platform)
+
+        system_prompt = f"""
+Analyze this {platform} work item with detailed code context.
+
+{platform_prompt}
+
+WORK ITEM:
+{doc_summary}
+
+{platform.upper()} CODEBASE CONTEXT:
+{platform_context}
+
+TASK: Provide detailed {platform} complexity analysis and recommendations.
+
+Focus on:
+- Technical complexity specific to {platform}
+- Integration challenges
+- Key components that need modification
+- Implementation approach
+- Potential risks and challenges
+
+Response format (JSON):
+{{
+  "factors": {{
+    {self._get_platform_factors_template(platform)}
+  }},
+  "explanation": "Detailed explanation of {platform} complexity and approach",
+  "recommended_approach": "Specific technical approach and tools",
+  "estimated_hours": {{"min": 16, "max": 24}},
+  "key_components": ["Component1", "Component2"],
+  "key_challenges": ["Challenge1", "Challenge2"]
+}}
+"""
+
+        response_data = await self._call_llm(system_prompt)
+
+        return PlatformAnalysis(
+            platform=platform,
+            factors=response_data["factors"],
+            explanation=response_data["explanation"],
+            recommended_approach=response_data["recommended_approach"],
+            estimated_hours=response_data["estimated_hours"],
+            key_components=response_data.get("key_components", []),
+            key_challenges=response_data.get("key_challenges", [])
+        )
+
+    async def get_complete_analysis(self,
+                                  doc_summary: str,
+                                  code_analysis: EnhancedCodeAnalysis) -> CompleteAnalysis:
+        """Run both stages and return combined results"""
+
+        try:
+            # Stage 1: Detect platforms
+            print("Stage 1: Detecting required platforms...")
+            platform_detection = await self.detect_platforms(doc_summary, code_analysis)
+
+            print(f"Platforms detected: {', '.join(platform_detection.estimated_platforms)}")
+            print(f"Work item type: {platform_detection.work_item_type}")
+            print(f"Complexity level: {platform_detection.complexity_level}")
+
+            # Stage 2: Analyze each required platform
+            platform_analyses = {}
+            for platform in platform_detection.estimated_platforms:
+                print(f"Stage 2: Analyzing {platform}...")
+                platform_analyses[platform] = await self.analyze_platform(
+                    platform, doc_summary, code_analysis, platform_detection
+                )
+                print(f"{platform} analysis complete")
+
+            # Calculate story points
+            story_points_data = await self._calculate_story_points(platform_analyses, platform_detection)
+
+            return CompleteAnalysis(
+                platform_detection=platform_detection,
+                platform_analyses=platform_analyses,
+                overall_story_points=story_points_data["overall"],
+                platform_story_points=story_points_data["by_platform"],
+                confidence_score=platform_detection.confidence
+            )
+
+        except Exception as e:
+            print(f"Platform-aware analysis failed: {e}")
+            # Fallback to traditional analysis
+            return await self._fallback_to_traditional_analysis(doc_summary, code_analysis)
+
+    def _generate_platform_structure_analysis(self, code_analysis: EnhancedCodeAnalysis) -> str:
+        """Generate structured analysis of available platform code"""
+
+        structure_lines = []
+        if code_analysis.platform_summaries:
+            for platform, summary in code_analysis.platform_summaries.items():
+                if summary.files_estimated > 0:
+                    structure_lines.append(f"📱 {platform.upper()}:")
+                    structure_lines.append(f"  - Files: {summary.files_estimated}")
+                    structure_lines.append(f"  - Languages: {', '.join(summary.languages_detected)}")
+                    structure_lines.append(f"  - Key Files: {', '.join(summary.key_files[:3])}")
+                    if summary.complexity_indicators:
+                        loc = summary.complexity_indicators.get("total_loc", 0)
+                        structure_lines.append(f"  - Lines of Code: {loc}")
+                    structure_lines.append("")
+
+        return "\n".join(structure_lines) if structure_lines else "No platform-specific code detected."
+
+    def _generate_platform_context(self, platform_summary, platform: str) -> str:
+        """Generate platform-specific code context"""
+
+        context_lines = [
+            f"Platform: {platform.upper()}",
+            f"Files: {platform_summary.files_estimated}",
+            f"Languages: {', '.join(platform_summary.languages_detected)}",
+            f"Directory: {platform_summary.directory}"
+        ]
+
+        if platform_summary.key_files:
+            context_lines.append(f"Key Files: {', '.join(platform_summary.key_files[:5])}")
+
+        if platform_summary.loc_by_language:
+            loc_info = [f"{lang}: {loc} LOC" for lang, loc in platform_summary.loc_by_language.items()]
+            context_lines.append(f"Lines of Code by Language: {', '.join(loc_info)}")
+
+        if platform_summary.complexity_indicators:
+            indicators = platform_summary.complexity_indicators
+            if indicators.get("large_files"):
+                total_large = sum(indicators["large_files"].values())
+                context_lines.append(f"Large Files (>500 lines): {total_large}")
+
+        return "\n".join(context_lines)
+
+    def _get_platform_specific_prompt(self, platform: str) -> str:
+        """Get platform-specific analysis prompt"""
+
+        prompts = {
+            "frontend": """
+FRONTEND ANALYSIS FACTORS:
+- UI Complexity: Component complexity, state management, visual design
+- User Interaction: Forms, validation, user flows, accessibility
+- Performance: Rendering optimization, lazy loading, bundle size
+- Integration: API integration, third-party services, routing
+- Testing: Unit tests, integration tests, E2E testing needs
+            """,
+
+            "backend": """
+BACKEND ANALYSIS FACTORS:
+- Business Logic: Domain complexity, validation rules, business workflows
+- Database Impact: Schema changes, migrations, query complexity
+- API Design: Endpoint complexity, request/response models, documentation
+- Integration: External services, message queues, caching
+- Security & Performance: Authentication, authorization, optimization
+            """,
+
+            "mobile": """
+MOBILE ANALYSIS FACTORS:
+- Platform Complexity: Native features, platform-specific UI/UX
+- Offline Support: Local storage, sync capabilities, conflict resolution
+- Device Integration: Camera, GPS, push notifications, biometrics
+- App Store Requirements: Submission complexity, review considerations
+- Cross-Platform: Framework complexity, platform differences
+            """,
+
+            "devops": """
+DEVOPS ANALYSIS FACTORS:
+- Infrastructure: Server setup, networking, load balancing
+- Automation: CI/CD pipelines, automated testing, deployment scripts
+- Deployment: Containerization, orchestration, environment management
+- Monitoring: Logging, metrics, alerting, health checks
+- Security: Access control, secrets management, compliance
+            """
+        }
+
+        return prompts.get(platform, "Analyze this platform for technical complexity.")
+
+    def _get_platform_factors_template(self, platform: str) -> str:
+        """Get platform-specific factors JSON template"""
+
+        templates = {
+            "frontend": '"ui_complexity": 3, "user_interaction": 4, "performance": 2, "integration": 3, "testing": 3',
+            "backend": '"business_logic": 4, "database_impact": 3, "api_design": 3, "integration": 2, "security_performance": 4',
+            "mobile": '"platform_complexity": 4, "offline_support": 3, "device_integration": 2, "app_store_requirements": 2, "cross_platform": 3',
+            "devops": '"infrastructure": 3, "automation": 4, "deployment": 3, "monitoring": 2, "security": 3'
+        }
+
+        return templates.get(platform, '"complexity": 3')
+
+    async def _call_llm(self, prompt: str) -> dict:
+        """Call the LLM API with error handling"""
+
+        data = {
+            "model": self.llm_config.get("model", "glm-4.6"),
+            "system": "You are an expert software architect analyzing technical requirements.",
+            "messages": [
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ],
+            "max_tokens": 1500,
+            "temperature": 0.2,
+        }
+
+        try:
+            response = requests.post(
+                self.llm_config.get("endpoint"),
+                headers=self.headers,
+                json=data,
+                timeout=30
+            )
+            response.raise_for_status()
+            result = response.json()
+
+            content_str = result['content'][0]['text']
+            # Handle JSON wrapped in code blocks
+            if "```json" in content_str:
+                content_str = content_str.split("```json")[1].split("```")[0]
+            elif "```" in content_str:
+                content_str = content_str.split("```")[1].split("```")[0]
+
+            return json.loads(content_str)
+
+        except requests.exceptions.RequestException as e:
+            raise RuntimeError(f"Error calling LLM API: {e}")
+        except (json.JSONDecodeError, KeyError) as e:
+            raise RuntimeError(f"Error parsing LLM response: {e}")
+
+    async def _calculate_story_points(self, platform_analyses: Dict[str, PlatformAnalysis],
+                                   platform_detection: PlatformDetection) -> Dict[str, int]:
+        """Calculate story points for each platform and overall"""
+
+        platform_story_points = {}
+        total_score = 0
+
+        for platform, analysis in platform_analyses.items():
+            if analysis.factors:
+                # Calculate platform score from factors
+                platform_score = sum(analysis.factors.values())
+
+                # Map to story points using configurable mapping
+                platform_sp = self._map_score_to_story_points(platform_score)
+                platform_story_points[platform] = platform_sp
+                total_score += platform_score
+
+        # Calculate overall story points (weighted average)
+        if platform_story_points:
+            overall_sp = self._map_score_to_story_points(total_score // len(platform_story_points))
+        else:
+            overall_sp = 3  # Default
+
+        return {
+            "by_platform": platform_story_points,
+            "overall": overall_sp
+        }
+
+    def _map_score_to_story_points(self, score: int) -> int:
+        """Map complexity score to Fibonacci story points"""
+
+        mapping = self.config_data.get("platform_mapping", {})
+
+        if score <= mapping.get("sp1_max", 5):
+            return 1
+        elif score <= mapping.get("sp2_max", 8):
+            return 2
+        elif score <= mapping.get("sp3_max", 12):
+            return 3
+        elif score <= mapping.get("sp5_max", 16):
+            return 5
+        elif score <= mapping.get("sp8_max", 20):
+            return 8
+        else:
+            return 13
+
+    async def _fallback_to_traditional_analysis(self, doc_summary: str, code_analysis: EnhancedCodeAnalysis) -> CompleteAnalysis:
+        """Fallback to traditional analysis when platform-aware analysis fails"""
+
+        print("🔄 Falling back to traditional analysis...")
+
+        # Create a mock platform detection
+        mock_detection = PlatformDetection(
+            platform_requirements={},
+            work_item_type="feature",
+            complexity_level="moderate",
+            estimated_platforms=["traditional"],
+            confidence=0.5,
+            reasoning="Fallback to traditional analysis due to platform analysis failure"
+        )
+
+        # Use traditional scoring
+        from story_size.core.models import Factors, CodeSummary, ScoreExplanations
+        from story_size.core.scoring import calculate_complexity_score, map_to_story_points
+
+        # Create simple code summary from platform analysis
+        total_files = sum(summary.files_estimated for summary in code_analysis.platform_summaries.values())
+        all_languages = list(set(lang for summary in code_analysis.platform_summaries.values()
+                                for lang in summary.languages_detected))
+
+        traditional_factors, explanations = traditional_score_factors(
+            doc_summary,
+            {"total_files": total_files, "languages_seen": all_languages},
+            {},
+            self.config_data
+        )
+
+        complexity_score = calculate_complexity_score(traditional_factors, self.config_data.get("weights", {}))
+        story_points = map_to_story_points(complexity_score, self.config_data.get("mapping", {}))
+
+        mock_analysis = PlatformAnalysis(
+            platform="traditional",
+            factors=traditional_factors.model_dump(),
+            explanation="Fallback traditional analysis",
+            recommended_approach="Standard development approach",
+            estimated_hours={"min": 8, "max": 16},
+            key_components=[],
+            key_challenges=[]
+        )
+
+        return CompleteAnalysis(
+            platform_detection=mock_detection,
+            platform_analyses={"traditional": mock_analysis},
+            traditional_factors=traditional_factors,
+            overall_story_points=story_points,
+            platform_story_points={"traditional": story_points},
+            confidence_score=0.5
+        )
