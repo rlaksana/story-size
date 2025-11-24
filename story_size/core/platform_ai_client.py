@@ -57,19 +57,19 @@ COMPLEXITY LEVELS:
 - very_complex: High complexity, high risk
 
 RESPONSE FORMAT (JSON):
-{
-  "platform_requirements": {
-    "frontend": {"required": true, "scope": "high|medium|low", "technologies": ["react", "typescript"]},
-    "backend": {"required": true, "scope": "high|medium|low", "technologies": ["dotnet", "sql"]},
-    "mobile": {"required": false, "scope": "high|medium|low", "technologies": []},
-    "devops": {"required": true, "scope": "high|medium|low", "technologies": ["docker", "k8s"]}
-  },
+{{
+  "platform_requirements": {{
+    "frontend": {{"required": true, "scope": "high|medium|low", "technologies": ["react", "typescript"]}},
+    "backend": {{"required": true, "scope": "high|medium|low", "technologies": ["dotnet", "sql"]}},
+    "mobile": {{"required": false, "scope": "high|medium|low", "technologies": []}},
+    "devops": {{"required": true, "scope": "high|medium|low", "technologies": ["docker", "k8s"]}}
+  }},
   "work_item_type": "feature|bugfix|enhancement|refactor|research",
   "complexity_level": "simple|moderate|complex|very_complex",
   "estimated_platforms": ["frontend", "backend"],
   "confidence": 0.85,
   "reasoning": "Detailed explanation of why these platforms are needed based on the work item"
-}
+}}
 
 Work Item Documents:
 ---
@@ -214,7 +214,7 @@ Response format (JSON):
         if code_analysis.platform_summaries:
             for platform, summary in code_analysis.platform_summaries.items():
                 if summary.files_estimated > 0:
-                    structure_lines.append(f"📱 {platform.upper()}:")
+                    structure_lines.append(f"[PLATFORM] {platform.upper()}:")
                     structure_lines.append(f"  - Files: {summary.files_estimated}")
                     structure_lines.append(f"  - Languages: {', '.join(summary.languages_detected)}")
                     structure_lines.append(f"  - Key Files: {', '.join(summary.key_files[:3])}")
@@ -310,7 +310,7 @@ DEVOPS ANALYSIS FACTORS:
 
         data = {
             "model": self.llm_config.get("model", "glm-4.6"),
-            "system": "You are an expert software architect analyzing technical requirements.",
+            "system": "You are an expert software architect analyzing technical requirements. Return ONLY valid JSON without any additional text or formatting.",
             "messages": [
                 {
                     "role": "user",
@@ -331,19 +331,52 @@ DEVOPS ANALYSIS FACTORS:
             response.raise_for_status()
             result = response.json()
 
-            content_str = result['content'][0]['text']
+            # Handle different response structures
+            if 'content' in result and len(result['content']) > 0:
+                content_str = result['content'][0]['text']
+            elif 'choices' in result and len(result['choices']) > 0:
+                content_str = result['choices'][0]['message']['content']
+            else:
+                raise RuntimeError(f"Unexpected response structure: {result}")
+
+            # Clean up the JSON response
+            content_str = content_str.strip()
+
             # Handle JSON wrapped in code blocks
             if "```json" in content_str:
                 content_str = content_str.split("```json")[1].split("```")[0]
             elif "```" in content_str:
                 content_str = content_str.split("```")[1].split("```")[0]
 
-            return json.loads(content_str)
+            # Remove any leading/trailing whitespace and newlines
+            content_str = content_str.strip()
+
+            # Find JSON object boundaries
+            if content_str.startswith('{') and content_str.endswith('}'):
+                return json.loads(content_str)
+            else:
+                # Try to extract JSON from the response
+                start_idx = content_str.find('{')
+                end_idx = content_str.rfind('}') + 1
+                if start_idx != -1 and end_idx != -1:
+                    json_str = content_str[start_idx:end_idx]
+                    return json.loads(json_str)
+                else:
+                    # Debug: save response to file for inspection
+                    with open('debug_response.txt', 'w', encoding='utf-8') as f:
+                        f.write(f"Full response:\n{result}\n\nExtracted content:\n{content_str}")
+                    raise RuntimeError(f"Could not find valid JSON in response. Debug info saved to debug_response.txt")
 
         except requests.exceptions.RequestException as e:
             raise RuntimeError(f"Error calling LLM API: {e}")
         except (json.JSONDecodeError, KeyError) as e:
-            raise RuntimeError(f"Error parsing LLM response: {e}")
+            # Debug: save response to file for inspection
+            try:
+                with open('debug_response.txt', 'w', encoding='utf-8') as f:
+                    f.write(f"Full response:\n{result}\n\nExtracted content:\n{content_str}\n\nError: {e}")
+            except:
+                pass
+            raise RuntimeError(f"Error parsing LLM response: {e}\nResponse content saved to debug_response.txt")
 
     async def _calculate_story_points(self, platform_analyses: Dict[str, PlatformAnalysis],
                                    platform_detection: PlatformDetection) -> Dict[str, int]:
@@ -394,7 +427,7 @@ DEVOPS ANALYSIS FACTORS:
     async def _fallback_to_traditional_analysis(self, doc_summary: str, code_analysis: EnhancedCodeAnalysis) -> CompleteAnalysis:
         """Fallback to traditional analysis when platform-aware analysis fails"""
 
-        print("🔄 Falling back to traditional analysis...")
+        print("Falling back to traditional analysis...")
 
         # Create a mock platform detection
         mock_detection = PlatformDetection(
