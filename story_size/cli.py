@@ -38,6 +38,7 @@ def main(
     languages: Optional[str] = typer.Option(None, "--languages", help="Comma-separated languages to analyze: csharp,typescript,javascript,dart."),
     output: str = typer.Option("enhanced", "--output", help="Output mode: text, json, enhanced."),
     output_md: Optional[Path] = typer.Option(None, "--output-md", help="Save output to markdown file at specified path."),
+    save_to_docs: bool = typer.Option(False, "--save-to-docs", help="Save output to markdown file in docs directory with generated filename."),
     config: Optional[Path] = typer.Option(None, "--config", help="Configuration file."),
 ):
     """
@@ -55,6 +56,9 @@ def main(
 
     # Save to markdown file
     story-size --docs-dir docs/ --fe-dir frontend/ --be-dir backend/ --output-md reports/estimation.md
+
+    # Auto-save to docs directory
+    story-size --docs-dir docs/ --fe-dir frontend/ --be-dir backend/ --save-to-docs
 
     # Use traditional analysis
     story-size --docs-dir docs/ --code-dir src/ --traditional
@@ -100,6 +104,13 @@ def main(
         estimation = asyncio.run(_run_platform_analysis(
             doc_text, platform_dirs, parsed_paths, parsed_languages, config_data, output, force_platforms
         ))
+
+    # Handle auto-save to docs directory
+    if save_to_docs and not output_md:
+        from datetime import datetime
+        docs_dir_name = docs_dir.name.replace(" ", "_").replace("(", "").replace(")", "").replace("[", "").replace("]", "")
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_md = docs_dir / f"story-estimation_{docs_dir_name}_{timestamp}.md"
 
     # Output results
     _output_results(estimation, output, output_md)
