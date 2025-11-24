@@ -37,6 +37,7 @@ def main(
     paths: Optional[str] = typer.Option(None, "--paths", help="Comma-separated subpaths to prioritize within each platform directory."),
     languages: Optional[str] = typer.Option(None, "--languages", help="Comma-separated languages to analyze: csharp,typescript,javascript,dart."),
     output: str = typer.Option("enhanced", "--output", help="Output mode: text, json, enhanced."),
+    output_md: Optional[Path] = typer.Option(None, "--output-md", help="Save output to markdown file at specified path."),
     config: Optional[Path] = typer.Option(None, "--config", help="Configuration file."),
 ):
     """
@@ -51,6 +52,9 @@ def main(
 
     # Force specific platforms
     story-size --docs-dir docs/ --code-dir src/ --force-platforms frontend,backend
+
+    # Save to markdown file
+    story-size --docs-dir docs/ --fe-dir frontend/ --be-dir backend/ --output-md reports/estimation.md
 
     # Use traditional analysis
     story-size --docs-dir docs/ --code-dir src/ --traditional
@@ -98,7 +102,7 @@ def main(
         ))
 
     # Output results
-    _output_results(estimation, output)
+    _output_results(estimation, output, output_md)
 
 def _run_traditional_analysis(doc_text: str, code_dir: Optional[Path], paths: Optional[List[str]],
                             languages: Optional[List[str]], config_data: dict, output_format: str) -> Estimation:
@@ -155,71 +159,201 @@ async def _run_platform_analysis(doc_text: str, platform_dirs, paths: Optional[L
 
     return analysis
 
-def _output_results(estimation, output_format: str):
+def _output_results(estimation, output_format: str, output_md: Optional[Path] = None):
     """Output analysis results in the specified format"""
 
+    # Generate console output
     if output_format == "json":
         if hasattr(estimation, 'model_dump_json'):
             # Enhanced estimation
-            print(estimation.model_dump_json(indent=2))
+            console_output = estimation.model_dump_json(indent=2)
         else:
             # Traditional estimation
-            print(estimation.model_dump_json(indent=2))
+            console_output = estimation.model_dump_json(indent=2)
+        print(console_output)
 
     elif output_format == "enhanced" and hasattr(estimation, 'platform_detection'):
         # Enhanced platform-aware output
-        _print_enhanced_output(estimation)
+        console_output = _get_enhanced_output_text(estimation)
+        print(console_output)
 
     else:
         # Traditional text output
-        _print_traditional_output(estimation)
+        console_output = _get_traditional_output_text(estimation)
+        print(console_output)
 
-def _print_enhanced_output(analysis):
-    """Print enhanced platform-aware output"""
+    # Save to markdown file if requested
+    if output_md:
+        _save_to_markdown(estimation, output_md, output_format, console_output)
 
-    print(f"\nSTORY SIZE ESTIMATION")
-    print(f"Overall: {analysis.overall_story_points} story points (confidence: {analysis.confidence_score:.2f})")
+def _get_enhanced_output_text(analysis) -> str:
+    """Get enhanced platform-aware output as text"""
 
-    print(f"\nPLATFORM BREAKDOWN:")
+    lines = []
+    lines.append("STORY SIZE ESTIMATION")
+    lines.append(f"Overall: {analysis.overall_story_points} story points (confidence: {analysis.confidence_score:.2f})")
+
+    lines.append("")
+    lines.append("PLATFORM BREAKDOWN:")
     for platform, sp in analysis.platform_story_points.items():
         platform_analysis = analysis.platform_analyses.get(platform)
         if platform_analysis and platform_analysis.estimated_hours:
             hours = f" ({platform_analysis.estimated_hours['min']}-{platform_analysis.estimated_hours['max']}h)"
         else:
             hours = ""
-        print(f"  {platform.upper()}: {sp} points{hours}")
+        lines.append(f"  {platform.upper()}: {sp} points{hours}")
 
-    print(f"\nPLATFORM ANALYSIS:")
+    lines.append("")
+    lines.append("PLATFORM ANALYSIS:")
     for platform, platform_analysis in analysis.platform_analyses.items():
         if platform_analysis.factors:
-            print(f"\n  {platform.upper()}:")
-            print(f"    Explanation: {platform_analysis.explanation}")
-            print(f"    Approach: {platform_analysis.recommended_approach}")
+            lines.append(f"")
+            lines.append(f"  {platform.upper()}:")
+            lines.append(f"    Explanation: {platform_analysis.explanation}")
+            lines.append(f"    Approach: {platform_analysis.recommended_approach}")
 
             if platform_analysis.key_components:
-                print(f"    Key Components: {', '.join(platform_analysis.key_components[:3])}")
+                lines.append(f"    Key Components: {', '.join(platform_analysis.key_components[:3])}")
 
             if platform_analysis.key_challenges:
-                print(f"    Challenges: {', '.join(platform_analysis.key_challenges[:2])}")
+                lines.append(f"    Challenges: {', '.join(platform_analysis.key_challenges[:2])}")
 
-    print(f"\nDETECTION DETAILS:")
-    print(f"  Work Item Type: {analysis.platform_detection.work_item_type}")
-    print(f"  Complexity Level: {analysis.platform_detection.complexity_level}")
-    print(f"  Required Platforms: {', '.join(analysis.platform_detection.estimated_platforms)}")
-    print(f"  Reasoning: {analysis.platform_detection.reasoning}")
+    lines.append("")
+    lines.append("DETECTION DETAILS:")
+    lines.append(f"  Work Item Type: {analysis.platform_detection.work_item_type}")
+    lines.append(f"  Complexity Level: {analysis.platform_detection.complexity_level}")
+    lines.append(f"  Required Platforms: {', '.join(analysis.platform_detection.estimated_platforms)}")
+    lines.append(f"  Reasoning: {analysis.platform_detection.reasoning}")
+
+    return "\n".join(lines)
+
+def _print_enhanced_output(analysis):
+    """Print enhanced platform-aware output"""
+    print(_get_enhanced_output_text(analysis))
+
+def _get_traditional_output_text(estimation) -> str:
+    """Get traditional text output as text"""
+
+    lines = []
+    lines.append(f"Suggested: {estimation.story_points} story points (confidence {estimation.confidence:.2f}), complexity_score={estimation.complexity_score}")
+    lines.append(f"Factors: DC={estimation.factors.dc}, IC={estimation.factors.ic}, IB={estimation.factors.ib}, DS={estimation.factors.ds}, NR={estimation.factors.nr}")
+
+    lines.append("")
+    lines.append("Score Explanations:")
+    lines.append(f"• DC ({estimation.factors.dc}/5): {estimation.score_explanations.dc_explanation}")
+    lines.append(f"• IC ({estimation.factors.ic}/5): {estimation.score_explanations.ic_explanation}")
+    lines.append(f"• IB ({estimation.factors.ib}/5): {estimation.score_explanations.ib_explanation}")
+    lines.append(f"• DS ({estimation.factors.ds}/5): {estimation.score_explanations.ds_explanation}")
+    lines.append(f"• NR ({estimation.factors.nr}/5): {estimation.score_explanations.nr_explanation}")
+
+    return "\n".join(lines)
 
 def _print_traditional_output(estimation):
     """Print traditional text output"""
+    print(_get_traditional_output_text(estimation))
 
-    print(f"Suggested: {estimation.story_points} story points (confidence {estimation.confidence:.2f}), complexity_score={estimation.complexity_score}")
-    print(f"Factors: DC={estimation.factors.dc}, IC={estimation.factors.ic}, IB={estimation.factors.ib}, DS={estimation.factors.ds}, NR={estimation.factors.nr}")
+def _save_to_markdown(estimation, output_path: Path, output_format: str, console_output: str):
+    """Save analysis results to a markdown file"""
 
-    print("\nScore Explanations:")
-    print(f"• DC ({estimation.factors.dc}/5): {estimation.score_explanations.dc_explanation}")
-    print(f"• IC ({estimation.factors.ic}/5): {estimation.score_explanations.ic_explanation}")
-    print(f"• IB ({estimation.factors.ib}/5): {estimation.score_explanations.ib_explanation}")
-    print(f"• DS ({estimation.factors.ds}/5): {estimation.score_explanations.ds_explanation}")
-    print(f"• NR ({estimation.factors.nr}/5): {estimation.score_explanations.nr_explanation}")
+    from datetime import datetime
+
+    try:
+        # Create output directory if it doesn't exist
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Generate markdown content
+        lines = []
+
+        # Header
+        lines.append("# Story Size Estimation Report")
+        lines.append("")
+        lines.append(f"**Generated on:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        lines.append(f"**Output Format:** {output_format}")
+        lines.append("")
+
+        # Summary table
+        if hasattr(estimation, 'overall_story_points'):
+            # Platform-aware analysis
+            lines.append("## Summary")
+            lines.append("")
+            lines.append("| Metric | Value |")
+            lines.append("|--------|-------|")
+            lines.append(f"| **Overall Story Points** | {estimation.overall_story_points} |")
+            lines.append(f"| **Confidence Score** | {estimation.confidence_score:.2f} |")
+            lines.append(f"| **Work Item Type** | {estimation.platform_detection.work_item_type} |")
+            lines.append(f"| **Complexity Level** | {estimation.platform_detection.complexity_level} |")
+            lines.append(f"| **Required Platforms** | {', '.join(estimation.platform_detection.estimated_platforms)} |")
+            lines.append("")
+
+            # Platform breakdown table
+            lines.append("## Platform Breakdown")
+            lines.append("")
+            lines.append("| Platform | Story Points | Estimated Hours |")
+            lines.append("|----------|-------------|-----------------|")
+
+            for platform, sp in estimation.platform_story_points.items():
+                platform_analysis = estimation.platform_analyses.get(platform)
+                if platform_analysis and platform_analysis.estimated_hours:
+                    hours = f"{platform_analysis.estimated_hours['min']}-{platform_analysis.estimated_hours['max']}"
+                else:
+                    hours = "N/A"
+                lines.append(f"| {platform.upper()} | {sp} | {hours} |")
+            lines.append("")
+
+        else:
+            # Traditional analysis
+            lines.append("## Summary")
+            lines.append("")
+            lines.append("| Metric | Value |")
+            lines.append("|--------|-------|")
+            lines.append(f"| **Story Points** | {estimation.story_points} |")
+            lines.append(f"| **Confidence** | {estimation.confidence:.2f} |")
+            lines.append(f"| **Complexity Score** | {estimation.complexity_score} |")
+            lines.append("")
+
+        # Detailed analysis
+        lines.append("## Detailed Analysis")
+        lines.append("")
+        lines.append("```")
+        lines.append(console_output)
+        lines.append("```")
+        lines.append("")
+
+        # Metadata
+        lines.append("## Analysis Metadata")
+        lines.append("")
+        if hasattr(estimation, 'platform_detection'):
+            lines.append(f"- **Reasoning:** {estimation.platform_detection.reasoning}")
+            lines.append("")
+            lines.append("### Platform Requirements:")
+            for platform, req in estimation.platform_detection.platform_requirements.items():
+                if req.required:
+                    lines.append(f"  - **{platform.upper()}:** Required (Scope: {req.scope})")
+                    if req.technologies:
+                        lines.append(f"    - Technologies: {', '.join(req.technologies)}")
+                else:
+                    lines.append(f"  - **{platform.upper()}:** Not Required")
+        else:
+            lines.append("### Factor Breakdown:")
+            lines.append(f"- **DC (Domain Complexity):** {estimation.factors.dc}/5")
+            lines.append(f"- **IC (Implementation Complexity):** {estimation.factors.ic}/5")
+            lines.append(f"- **IB (Integration Breadth):** {estimation.factors.ib}/5")
+            lines.append(f"- **DS (Data/Schema Impact):** {estimation.factors.ds}/5")
+            lines.append(f"- **NR (Non-Functional & Risk):** {estimation.factors.nr}/5")
+
+        lines.append("")
+        lines.append("---")
+        lines.append("*Report generated by Story Size Estimator*")
+
+        # Write to file
+        markdown_content = "\n".join(lines)
+        with open(output_path, 'w', encoding='utf-8') as f:
+            f.write(markdown_content)
+
+        print(f"\nReport saved to: {output_path}")
+
+    except Exception as e:
+        print(f"Error saving markdown file: {e}")
 
 # Add help command
 @app.command()
