@@ -87,8 +87,9 @@ def main(
         auto_detect=auto_detect_dirs
     )
 
-    # Read documents
-    doc_text = read_documents(docs_dir)
+    # Read documents with size limits to prevent API errors
+    from story_size.core.docs import read_documents_limited
+    doc_text = read_documents_limited(docs_dir, max_content_length=30000)
 
     if not doc_text.strip():
         print("Warning: No document content found. Analysis may be inaccurate.")
