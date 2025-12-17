@@ -1,0 +1,210 @@
+{
+  "corrections": [
+    {
+      "timestamp": "2025-12-12T18:28:54.629621",
+      "doc_snippet": "---\ngist-publish-url: https://gist.github.com/DamarKusumo/35fb9589e8798dc574a190e16ac65669\n---\n# Story Size Estimation Report\n\n**Generated on:** 2025-12-11 13:10:04\n**Output Format:** enhanced\n\n## Sum...",
+      "detected_platforms": [
+        "backend",
+        "mobile"
+      ],
+      "correct_platforms": [
+        "backend",
+        "frontend"
+      ],
+      "application_name": "Andal Kharisma",
+      "user_feedback": "This is for Admin app (web), not Employee app (mobile). The document clearly states Admin app which requires frontend web interface.",
+      "key_phrases": [
+        {
+          "category": "mobile_applications",
+          "phrase": " architectural changes to the mobile app's authentication and state ma",
+          "keyword": "mobile app"
+        },
+        {
+          "category": "mobile_applications",
+          "phrase": "gh)\n    - Technologies: dart, flutter\n  - **DEVOPS:** Not Required\n",
+          "keyword": "flutter"
+        },
+        {
+          "category": "ui_components",
+          "phrase": "itional) \nF.1. Action \nAction Icon  Description  \nCompany Button",
+          "keyword": "icon"
+        },
+        {
+          "category": "ui_components",
+          "phrase": "n Andal Kharisma.  \n \n2. Klik Button Login \n\n   \n \n   \n \n \nDescrip",
+          "keyword": "button"
+        },
+        {
+          "category": "ui_components",
+          "phrase": " triggered from a new profile menu item. When a switch occurs, t",
+          "keyword": "menu"
+        },
+        {
+          "category": "ui_components",
+          "phrase": " users and a tenant selection screen for multi-tenant users. Furth",
+          "keyword": "screen"
+        },
+        {
+          "category": "backend_features",
+          "phrase": "s required. This requires new API endpoints for fetching a user",
+          "keyword": "api"
+        },
+        {
+          "category": "backend_features",
+          "phrase": " this feature in phases. 1. **Database Schema & Migrations:** Create",
+          "keyword": "database"
+        },
+        {
+          "category": "backend_features",
+          "phrase": "ey Components: Authentication Service (Login Logic), Authorization ",
+          "keyword": "service"
+        },
+        {
+          "category": "backend_features",
+          "phrase": "quired. This requires new API endpoints for fetching a user's access",
+          "keyword": "endpoint"
+        }
+      ],
+      "confidence_boost": 0.1
+    },
+    {
+      "timestamp": "2025-12-12T18:32:28.833897",
+      "doc_snippet": "---\ngist-publish-url: https://gist.github.com/DamarKusumo/35fb9589e8798dc574a190e16ac65669\n---\n# Story Size Estimation Report\n\n**Generated on:** 2025-12-11 13:10:04\n**Output Format:** enhanced\n\n## Sum...",
+      "detected_platforms": [
+        "backend",
+        "mobile"
+      ],
+      "correct_platforms": [
+        "backend",
+        "frontend"
+      ],
+      "application_name": "Andal Kharisma",
+      "user_feedback": "This is for Admin app (web), not Employee app (mobile). The document clearly states Admin app which requires frontend web interface.",
+      "key_phrases": [
+        {
+          "category": "mobile_applications",
+          "phrase": " architectural changes to the mobile app's authentication and state ma",
+          "keyword": "mobile app"
+        },
+        {
+          "category": "mobile_applications",
+          "phrase": "gh)\n    - Technologies: dart, flutter\n  - **DEVOPS:** Not Required\n",
+          "keyword": "flutter"
+        },
+        {
+          "category": "ui_components",
+          "phrase": "itional) \nF.1. Action \nAction Icon  Description  \nCompany Button",
+          "keyword": "icon"
+        },
+        {
+          "category": "ui_components",
+          "phrase": "n Andal Kharisma.  \n \n2. Klik Button Login \n\n   \n \n   \n \n \nDescrip",
+          "keyword": "button"
+        },
+        {
+          "category": "ui_components",
+          "phrase": " triggered from a new profile menu item. When a switch occurs, t",
+          "keyword": "menu"
+        },
+        {
+          "category": "ui_components",
+          "phrase": " users and a tenant selection screen for multi-tenant users. Furth",
+          "keyword": "screen"
+        },
+        {
+          "category": "backend_features",
+          "phrase": "s required. This requires new API endpoints for fetching a user",
+          "keyword": "api"
+        },
+        {
+          "category": "backend_features",
+          "phrase": " this feature in phases. 1. **Database Schema & Migrations:** Create",
+          "keyword": "database"
+        },
+        {
+          "category": "backend_features",
+          "phrase": "ey Components: Authentication Service (Login Logic), Authorization ",
+          "keyword": "service"
+        },
+        {
+          "category": "backend_features",
+          "phrase": "quired. This requires new API endpoints for fetching a user's access",
+          "keyword": "endpoint"
+        }
+      ],
+      "confidence_boost": 0.1
+    },
+    {
+      "timestamp": "2025-12-12T18:36:56.692819",
+      "doc_snippet": "Login Multi Tenant pada Andal Kharisma - Admin app authentication",
+      "detected_platforms": [
+        "backend",
+        "mobile"
+      ],
+      "correct_platforms": [
+        "backend",
+        "frontend"
+      ],
+      "application_name": "Andal Kharisma",
+      "user_feedback": "This is for Admin app (web), not Employee app (mobile). The document clearly states Admin app which requires frontend web interface.",
+      "key_phrases": [
+        {
+          "category": "web_applications",
+          "phrase": "Admin app login multi tenant",
+          "keyword": "admin"
+        },
+        {
+          "category": "web_applications",
+          "phrase": "Andal Kharisma web application",
+          "keyword": "web"
+        }
+      ],
+      "confidence_boost": 0.1
+    },
+    {
+      "timestamp": "2025-12-15T06:16:14.880187",
+      "doc_snippet": "Enhancement-Kemunculan pertama melihat tanggal awal periode atau Effective Date Transaksi Assign Salcom EOP",
+      "detected_platforms": [
+        "backend"
+      ],
+      "correct_platforms": [
+        "backend",
+        "frontend"
+      ],
+      "application_name": "Salcom EOP",
+      "user_feedback": "Document shows UI enhancement mockups/screenshots - requires frontend implementation for effective date display improvements",
+      "key_phrases": [
+        {
+          "category": "ui_components",
+          "phrase": "UI enhancement mockups for effective date display",
+          "keyword": "ui"
+        },
+        {
+          "category": "web_applications",
+          "phrase": "Enhancement first appearance show effective date",
+          "keyword": "enhancement"
+        },
+        {
+          "category": "backend_features",
+          "phrase": "Effective Date Transaction Assignment",
+          "keyword": "transaction"
+        }
+      ],
+      "confidence_boost": 0.1
+    }
+  ],
+  "statistics": {
+    "total_corrections": 4,
+    "accuracy_by_application": {
+      "Andal Kharisma": {
+        "correct": 0,
+        "incorrect": 3
+      },
+      "Salcom EOP": {
+        "correct": 0,
+        "incorrect": 1
+      }
+    },
+    "accuracy_by_pattern": {}
+  }
+}

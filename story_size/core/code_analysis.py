@@ -16,49 +16,6 @@ SUPPORTED_LANGUAGES = {
     "dockerfile": ["dockerfile", "Dockerfile"],
 }
 
-# Original function for backward compatibility
-def analyze_code(
-    code_dir: Path,
-    paths: Optional[List[str]] = None,
-    languages: Optional[List[str]] = None,
-) -> Dict:
-    """
-    Analyzes the code in the given directory and returns a summary.
-    """
-    if languages is None:
-        languages = list(SUPPORTED_LANGUAGES.keys())
-
-    files_by_language = {lang: 0 for lang in languages}
-    loc_by_language = {lang: 0 for lang in languages}
-    large_files_by_language = {lang: 0 for lang in languages}
-
-    search_paths = [code_dir]
-    if paths:
-        search_paths = [code_dir / p for p in paths]
-
-    for search_path in search_paths:
-        for lang in languages:
-            extensions = SUPPORTED_LANGUAGES[lang]
-            for ext in extensions:
-                for file_path in search_path.rglob(f"*{ext}"):
-                    files_by_language[lang] += 1
-                    try:
-                        with open(file_path, "r", encoding="utf-8") as f:
-                            lines = f.readlines()
-                            loc = len(lines)
-                            loc_by_language[lang] += loc
-                            if loc > 500:
-                                large_files_by_language[lang] += 1
-                    except Exception:
-                        # Ignore files that can't be read
-                        pass
-
-    return {
-        "languages_seen": [lang for lang, count in files_by_language.items() if count > 0],
-        "files_by_language": files_by_language,
-        "loc_by_language": loc_by_language,
-        "large_files_by_language": large_files_by_language,
-    }
 
 # Enhanced platform-specific functions
 def analyze_platform_code(
@@ -82,7 +39,7 @@ def analyze_platform_code(
 
     # Get platform-specific language priorities, but filter to supported languages
     resolver = DirectoryResolver()
-    all_platform_languages = resolver.get_platform_primary_languages(platform, languages)
+    all_platform_languages = resolver.get_platform_languages(platform, languages)
     platform_languages = [lang for lang in all_platform_languages if lang in SUPPORTED_LANGUAGES]
 
     # If no languages specified or supported, use default supported languages
@@ -90,11 +47,37 @@ def analyze_platform_code(
         platform_languages = list(SUPPORTED_LANGUAGES.keys())
 
     # Analyze the platform directory
-    analysis = analyze_code(
-        code_dir=platform_dir,
-        paths=paths,
-        languages=platform_languages
-    )
+    files_by_language = {lang: 0 for lang in platform_languages}
+    loc_by_language = {lang: 0 for lang in platform_languages}
+    large_files_by_language = {lang: 0 for lang in platform_languages}
+
+    search_paths = [platform_dir]
+    if paths:
+        search_paths = [platform_dir / p for p in paths]
+
+    for search_path in search_paths:
+        for lang in platform_languages:
+            extensions = SUPPORTED_LANGUAGES[lang]
+            for ext in extensions:
+                for file_path in search_path.rglob(f"*{ext}"):
+                    files_by_language[lang] += 1
+                    try:
+                        with open(file_path, "r", encoding="utf-8") as f:
+                            lines = f.readlines()
+                            loc = len(lines)
+                            loc_by_language[lang] += loc
+                            if loc > 500:
+                                large_files_by_language[lang] += 1
+                    except Exception:
+                        # Ignore files that can't be read
+                        pass
+
+    analysis = {
+        "languages_seen": [lang for lang, count in files_by_language.items() if count > 0],
+        "files_by_language": files_by_language,
+        "loc_by_language": loc_by_language,
+        "large_files_by_language": large_files_by_language,
+    }
 
     # Identify platform-specific key files
     key_files = resolver.identify_key_files(platform_dir, platform)
@@ -297,23 +280,3 @@ def identify_cross_platform_dependencies(platform_summaries: Dict[str, PlatformC
 
     return dependencies
 
-# Helper method for DirectoryResolver
-def get_platform_primary_languages(self, platform: str, user_languages: Optional[List[str]] = None) -> List[str]:
-    """Get priority languages for a platform"""
-
-    platform_defaults = {
-        "frontend": ["typescript", "javascript"],
-        "backend": ["csharp", "python", "java", "go"],
-        "mobile": ["dart", "kotlin", "swift"],
-        "devops": ["yaml", "json"]
-    }
-
-    if user_languages:
-        # Filter user languages by platform relevance
-        platform_langs = platform_defaults.get(platform, [])
-        return [lang for lang in user_languages if lang in platform_langs] or platform_langs
-
-    return platform_defaults.get(platform, [])
-
-# Add the method to DirectoryResolver class
-DirectoryResolver.get_platform_primary_languages = get_platform_primary_languages

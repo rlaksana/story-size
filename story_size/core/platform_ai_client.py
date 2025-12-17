@@ -1,12 +1,12 @@
 import os
 import json
 import requests
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Optional
 from story_size.core.models import (
     PlatformDetection, PlatformAnalysis, CompleteAnalysis,
     PlatformRequirement, EnhancedCodeAnalysis
 )
-from story_size.core.ai_client import score_factors as traditional_score_factors
+from story_size.core.platform_detector import PlatformDetector
 
 class PlatformAwareAIClient:
     def __init__(self, config_data: dict):
@@ -14,6 +14,7 @@ class PlatformAwareAIClient:
         self.llm_config = config_data.get("llm", {})
         self.api_key_env = self.llm_config.get("api_key_env", "ZAI_API_KEY")
         self.api_key = os.environ.get(self.api_key_env)
+        self.platform_detector = PlatformDetector()
 
         if not self.api_key:
             raise ValueError(f"API key not found in environment variable: {self.api_key_env}")
@@ -24,10 +25,13 @@ class PlatformAwareAIClient:
             "anthropic-version": "2023-06-01",
         }
 
-    async def detect_platforms(self, doc_summary: str, code_analysis: EnhancedCodeAnalysis) -> PlatformDetection:
+    async def detect_platforms(self, doc_summary: str, code_analysis: EnhancedCodeAnalysis, force_platforms: Optional[str] = None) -> PlatformDetection:
         """Stage 1: Detect required platforms"""
 
         platform_structure = self._generate_platform_structure_analysis(code_analysis)
+
+        # Get application context
+        app_context = self.platform_detector.detect_platform_from_context(doc_summary)
 
         system_prompt = """
 Analyze this work item and available codebase structure.
@@ -37,11 +41,19 @@ TASK: Determine which platforms are needed and assess complexity.
 AVAILABLE CODE STRUCTURE:
 {platform_structure}
 
+{app_context}
+
 PLATFORMS TO CONSIDER:
-- Frontend (UI/UX, web application, components)
-- Backend (API, services, database, business logic)
-- Mobile (iOS/Android apps, cross-platform)
-- DevOps/Infrastructure (deployment, CI/CD, infrastructure)
+- Frontend (UI/UX, web application, components) - Use for web-based interfaces
+- Backend (API, services, database, business logic) - Use for server-side logic
+- Mobile (iOS/Android apps, cross-platform) - Use for native mobile applications
+- DevOps/Infrastructure (deployment, CI/CD, infrastructure) - Use for deployment/ops changes
+
+IMPORTANT GUIDELINES:
+1. If a known application is mentioned (like "Andal Connect" or "Andal Kharisma"), use its documented platform
+2. Don't default to frontend just because UI changes are mentioned - check if it's a mobile app
+3. Consider the full context of the work item
+4. Backend is required for any data-driven features, even in mobile apps
 
 WORK ITEM TYPES:
 - feature: New functionality
@@ -61,7 +73,7 @@ RESPONSE FORMAT (JSON):
   "platform_requirements": {{
     "frontend": {{"required": true, "scope": "high|medium|low", "technologies": ["react", "typescript"]}},
     "backend": {{"required": true, "scope": "high|medium|low", "technologies": ["dotnet", "sql"]}},
-    "mobile": {{"required": false, "scope": "high|medium|low", "technologies": []}},
+    "mobile": {{"required": false, "scope": "high|medium|low", "technologies": ["flutter", "dart"]}},
     "devops": {{"required": true, "scope": "high|medium|low", "technologies": ["docker", "k8s"]}}
   }},
   "work_item_type": "feature|bugfix|enhancement|refactor|research",
@@ -79,8 +91,17 @@ Work Item Documents:
 
         user_prompt = system_prompt.format(
             platform_structure=platform_structure,
+            app_context=f"APPLICATION CONTEXT:\n{app_context['reasoning']}\nLikely platforms: {', '.join(app_context['detected_platforms'])}",
             doc_summary=doc_summary
         )
+
+        # Override platforms if force_platforms is specified
+        if force_platforms:
+            forced_platforms = [p.strip().lower() for p in force_platforms.split(',')]
+
+            # Add override instruction to prompt
+            user_prompt += f"\n\nIMPORTANT OVERRIDE: The user has specified that this work item is for these platforms ONLY: {', '.join(forced_platforms)}. "
+            user_prompt += "Ignore any automatic detection and use these exact platforms."
 
         response_data = await self._call_llm(user_prompt)
 
@@ -88,6 +109,33 @@ Work Item Documents:
         platform_requirements = {}
         for platform, req_data in response_data["platform_requirements"].items():
             platform_requirements[platform] = PlatformRequirement(**req_data)
+
+        # Apply force_platforms override if specified
+        if force_platforms:
+            forced_platforms = [p.strip().lower() for p in force_platforms.split(',')]
+
+            # Reset all platforms to not required
+            for platform in platform_requirements:
+                platform_requirements[platform].required = False
+
+            # Set forced platforms as required
+            platform_mapping = {
+                'frontend': 'frontend',
+                'backend': 'backend',
+                'mobile': 'mobile',
+                'devops': 'devops'
+            }
+
+            for forced_platform in forced_platforms:
+                if forced_platform in platform_mapping:
+                    platform_name = platform_mapping[forced_platform]
+                    if platform_name in platform_requirements:
+                        platform_requirements[platform_name].required = True
+
+            # Update estimated platforms
+            response_data["estimated_platforms"] = forced_platforms
+            response_data["confidence"] = 1.0  # Maximum confidence when forced
+            response_data["reasoning"] = f"Platforms forced by user: {', '.join(forced_platforms)}"
 
         return PlatformDetection(
             platform_requirements=platform_requirements,
@@ -102,7 +150,8 @@ Work Item Documents:
                              platform: str,
                              doc_summary: str,
                              code_analysis: EnhancedCodeAnalysis,
-                             platform_detection: PlatformDetection) -> PlatformAnalysis:
+                             platform_detection: PlatformDetection,
+                             image_analysis: dict = None) -> PlatformAnalysis:
         """Stage 2: Detailed platform-specific analysis"""
 
         # Get platform-specific code summary
@@ -123,6 +172,34 @@ Work Item Documents:
         platform_prompt = self._get_platform_specific_prompt(platform)
         platform_context = self._generate_platform_context(platform_summary, platform)
 
+        # Add image context if available
+        image_context = ""
+        if image_analysis and image_analysis.get('total_images', 0) > 0:
+            indicators = image_analysis.get('complexity_indicators', {})
+            image_context = f"""
+VISUAL ELEMENTS ANALYSIS:
+========================
+Total images analyzed: {image_analysis.get('total_images', 0)}
+Images with extracted text: {image_analysis.get('images_with_text', 0)}
+Total OCR characters extracted: {image_analysis.get('total_ocr_chars', 0)}
+Visual Complexity Score: {image_analysis.get('total_image_complexity', 0)} (0-5 scale)
+
+Visual Elements Detected:
+• Diagrams/Charts: {indicators.get('has_diagrams', False)}
+• Tables: {indicators.get('has_tables', False)}
+• Screenshots: {indicators.get('has_screenshots', False)}
+• Forms: {indicators.get('has_forms', False)}
+• Workflows: {indicators.get('has_workflows', False)}
+• Icons/UI Elements: {indicators.get('has_icons', False)}
+
+IMPORTANT for {platform.upper()} analysis:
+- Diagrams and workflows represent complex business logic that needs {platform} implementation
+- Screenshots suggest UI changes or system integrations affecting {platform}
+- Forms indicate user input validation requirements for {platform}
+- Tables may imply data structure modifications affecting {platform}
+- Multiple visual elements increase coordination needs for {platform} development
+"""
+
         system_prompt = f"""
 Analyze this {platform} work item with detailed code context.
 
@@ -133,6 +210,8 @@ WORK ITEM:
 
 {platform.upper()} CODEBASE CONTEXT:
 {platform_context}
+
+{image_context}
 
 TASK: Provide detailed {platform} complexity analysis and recommendations.
 
@@ -170,13 +249,19 @@ Response format (JSON):
 
     async def get_complete_analysis(self,
                                   doc_summary: str,
-                                  code_analysis: EnhancedCodeAnalysis) -> CompleteAnalysis:
+                                  code_analysis: EnhancedCodeAnalysis,
+                                  force_platforms: Optional[str] = None,
+                                  image_analysis: dict = None) -> CompleteAnalysis:
         """Run both stages and return combined results"""
 
         try:
             # Stage 1: Detect platforms
+            # Check if we have image analysis to include
+            if image_analysis and image_analysis.get('total_images', 0) > 0:
+                print(f"[INFO] Processing with image analysis: {image_analysis.get('total_images')} images found")
+
             print("Stage 1: Detecting required platforms...")
-            platform_detection = await self.detect_platforms(doc_summary, code_analysis)
+            platform_detection = await self.detect_platforms(doc_summary, code_analysis, force_platforms)
 
             print(f"Platforms detected: {', '.join(platform_detection.estimated_platforms)}")
             print(f"Work item type: {platform_detection.work_item_type}")
@@ -187,7 +272,7 @@ Response format (JSON):
             for platform in platform_detection.estimated_platforms:
                 print(f"Stage 2: Analyzing {platform}...")
                 platform_analyses[platform] = await self.analyze_platform(
-                    platform, doc_summary, code_analysis, platform_detection
+                    platform, doc_summary, code_analysis, platform_detection, image_analysis
                 )
                 print(f"{platform} analysis complete")
 
@@ -204,8 +289,8 @@ Response format (JSON):
 
         except Exception as e:
             print(f"Platform-aware analysis failed: {e}")
-            # Fallback to traditional analysis
-            return await self._fallback_to_traditional_analysis(doc_summary, code_analysis)
+            # Re-raise the exception since traditional fallback is removed
+            raise Exception(f"Platform-aware analysis failed and no fallback available: {e}")
 
     def _generate_platform_structure_analysis(self, code_analysis: EnhancedCodeAnalysis) -> str:
         """Generate structured analysis of available platform code"""
@@ -325,8 +410,7 @@ DEVOPS ANALYSIS FACTORS:
             response = requests.post(
                 self.llm_config.get("endpoint"),
                 headers=self.headers,
-                json=data,
-                timeout=30
+                json=data
             )
             response.raise_for_status()
             result = response.json()
@@ -424,55 +508,4 @@ DEVOPS ANALYSIS FACTORS:
         else:
             return 13
 
-    async def _fallback_to_traditional_analysis(self, doc_summary: str, code_analysis: EnhancedCodeAnalysis) -> CompleteAnalysis:
-        """Fallback to traditional analysis when platform-aware analysis fails"""
-
-        print("Falling back to traditional analysis...")
-
-        # Create a mock platform detection
-        mock_detection = PlatformDetection(
-            platform_requirements={},
-            work_item_type="feature",
-            complexity_level="moderate",
-            estimated_platforms=["traditional"],
-            confidence=0.5,
-            reasoning="Fallback to traditional analysis due to platform analysis failure"
-        )
-
-        # Use traditional scoring
-        from story_size.core.models import Factors, CodeSummary, ScoreExplanations
-        from story_size.core.scoring import calculate_complexity_score, map_to_story_points
-
-        # Create simple code summary from platform analysis
-        total_files = sum(summary.files_estimated for summary in code_analysis.platform_summaries.values())
-        all_languages = list(set(lang for summary in code_analysis.platform_summaries.values()
-                                for lang in summary.languages_detected))
-
-        traditional_factors, explanations = traditional_score_factors(
-            doc_summary,
-            {"total_files": total_files, "languages_seen": all_languages},
-            {},
-            self.config_data
-        )
-
-        complexity_score = calculate_complexity_score(traditional_factors, self.config_data.get("weights", {}))
-        story_points = map_to_story_points(complexity_score, self.config_data.get("mapping", {}))
-
-        mock_analysis = PlatformAnalysis(
-            platform="traditional",
-            factors=traditional_factors.model_dump(),
-            explanation="Fallback traditional analysis",
-            recommended_approach="Standard development approach",
-            estimated_hours={"min": 8, "max": 16},
-            key_components=[],
-            key_challenges=[]
-        )
-
-        return CompleteAnalysis(
-            platform_detection=mock_detection,
-            platform_analyses={"traditional": mock_analysis},
-            traditional_factors=traditional_factors,
-            overall_story_points=story_points,
-            platform_story_points={"traditional": story_points},
-            confidence_score=0.5
-        )
+    

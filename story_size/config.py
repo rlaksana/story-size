@@ -66,10 +66,9 @@ DEFAULT_CONFIG = {
         "include_key_files_in_prompt": True,
         "max_key_files_per_platform": 5,
         "include_dependencies_analysis": True,
-        "max_prompt_length": 8000,
+        "max_prompt_length": 500000,
         "temperature": 0.2,
-        "max_tokens": 1500,
-        "timeout_seconds": 30
+        "max_tokens": 1500
     }
 }
 
@@ -206,9 +205,7 @@ def save_sample_config(output_path: Path):
             "endpoint": "https://api.z.ai/api/anthropic/v1/messages",
             "api_key_env": "ZAI_API_KEY",
             "model": "glm-4.6",
-            "# Optional: Request timeout in seconds": None,
-            "timeout": 30
-        },
+          },
 
         "weights": {
             "# Traditional factor weights (1-5 scale)": None,

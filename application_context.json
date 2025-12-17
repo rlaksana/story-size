@@ -1,0 +1,43 @@
+{
+  "applications": {
+    "Andal Connect": {
+      "type": "mobile",
+      "platforms": ["mobile"],
+      "technologies": ["flutter", "dart"],
+      "description": "Mobile application for HR management",
+      "indicators": ["mobile app", "flutter", "dart", "apk", "android", "ios"]
+    },
+    "Andal Kharisma": {
+      "type": "web",
+      "platforms": ["frontend", "backend"],
+      "technologies": ["typescript", "javascript", "csharp", "dotnet"],
+      "description": "Web-based HR management system",
+      "indicators": ["web", "browser", "typescript", "react", "angular"]
+    }
+  },
+  "platform_patterns": {
+    "mobile_indicators": [
+      "mobile app", "android", "ios", "flutter", "react native",
+      "apk", "smartphone", "tablet", "mobile application",
+      "cordova", "phonegap", "ionic", "xamarin"
+    ],
+    "web_indicators": [
+      "web application", "browser", "chrome", "firefox", "safari",
+      "html", "css", "javascript", "typescript", "react", "angular", "vue"
+    ],
+    "desktop_indicators": [
+      "desktop", "windows application", "mac application", "electron",
+      "desktop app", "standalone", "native desktop"
+    ]
+  },
+  "menu_location_patterns": {
+    "mobile_specific": [
+      "navigation drawer", "bottom navigation", "app bar", "mobile menu",
+      "floating action button", "swipe", "tap", "mobile view"
+    ],
+    "web_specific": [
+      "sidebar", "top navigation", "breadcrumb", "dropdown menu",
+      "hover", "click", "web view", "browser tab"
+    ]
+  }
+}
