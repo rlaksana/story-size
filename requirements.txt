@@ -5,3 +5,9 @@ requests
 pypdf
 python-docx
 openpyxl
+python-dotenv
+# Image processing dependencies
+pymupdf
+easyocr
+pillow
+numpy

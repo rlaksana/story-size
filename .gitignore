@@ -40,3 +40,4 @@ Thumbs.db
 .serena/
 *.exe
 *.spec
+.env

@@ -1,0 +1,98 @@
+name: customer_dashboard_mobile
+description: Customer Dashboard mobile application built with Flutter
+
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: '>=2.19.0 <3.0.0'
+  flutter: ">=3.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # UI Framework
+  cupertino_icons: ^1.0.5
+  material_design_icons_flutter: ^6.0.7096
+
+  # State Management
+  provider: ^6.0.5
+  bloc: ^8.1.1
+  flutter_bloc: ^8.1.2
+
+  # HTTP & API
+  http: ^0.13.5
+  dio: ^4.0.6
+  retrofit: ^3.0.1+1
+
+  # Local Storage & Database
+  shared_preferences: ^2.0.17
+  sqflite: ^2.2.8+2
+  path_provider: ^2.0.14
+
+  # Security & Authentication
+  flutter_secure_storage: ^8.0.0+1
+  local_auth: ^2.1.3
+
+  # Push Notifications
+  firebase_messaging: ^14.4.0
+  flutter_local_notifications: ^13.0.0
+
+  # Real-time Communication
+  socket_io_client: ^2.0.1
+  web_socket_channel: ^2.3.0
+
+  # UI Components
+  syncfusion_flutter_charts: ^21.1.38
+  cached_network_image: ^3.2.2
+  shimmer: ^2.0.0
+
+  # Navigation
+  go_router: ^6.5.5
+
+  # Utilities
+  intl: ^0.18.0
+  logger: ^1.1.0
+  connectivity_plus: ^3.0.3
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^2.0.1
+  mockito: ^5.3.2
+  build_runner: ^2.3.3
+
+  # Code Generation
+  retrofit_generator: ^4.0.3
+  json_serializable: ^6.5.4
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/images/
+    - assets/icons/
+    - assets/config/
+
+  fonts:
+    - family: Roboto
+      fonts:
+        - asset: fonts/Roboto-Regular.ttf
+        - asset: fonts/Roboto-Bold.ttf
+          weight: 700
+
+# Platform-specific configurations
+flutter_icons:
+  android: "launcher_icon"
+  ios: true
+  image_path: "assets/icons/app_icon.png"
+
+# App signing configuration (for release builds)
+flutter_signing_key:
+  android:
+    keyAlias: "release"
+    keyPassword: "your_key_password"
+    storePassword: "your_store_password"
+    storeFile: "keystore/release.keystore"

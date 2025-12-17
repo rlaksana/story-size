@@ -1,0 +1,114 @@
+{
+  "application_patterns": {
+    "Andal Kharisma": {
+      "platforms": [
+        "backend",
+        "frontend"
+      ],
+      "correction_count": 3,
+      "confidence": 0.8
+    },
+    "Salcom EOP": {
+      "platforms": [
+        "backend",
+        "frontend"
+      ],
+      "correction_count": 1,
+      "confidence": 0.6
+    }
+  },
+  "document_patterns": {
+    " architectural changes to the mobile app's authentication and state ma": {
+      "platforms": {
+        "backend": 2,
+        "frontend": 2
+      },
+      "count": 2
+    },
+    "gh)\n    - Technologies: dart, flutter\n  - **DEVOPS:** Not Required\n": {
+      "platforms": {
+        "backend": 2,
+        "frontend": 2
+      },
+      "count": 2
+    },
+    "itional) \nF.1. Action \nAction Icon  Description  \nCompany Button": {
+      "platforms": {
+        "backend": 2,
+        "frontend": 2
+      },
+      "count": 2
+    },
+    "n Andal Kharisma.  \n \n2. Klik Button Login \n\n   \n \n   \n \n \nDescrip": {
+      "platforms": {
+        "backend": 2,
+        "frontend": 2
+      },
+      "count": 2
+    },
+    " triggered from a new profile menu item. When a switch occurs, t": {
+      "platforms": {
+        "backend": 2,
+        "frontend": 2
+      },
+      "count": 2
+    },
+    " users and a tenant selection screen for multi-tenant users. Furth": {
+      "platforms": {
+        "backend": 2,
+        "frontend": 2
+      },
+      "count": 2
+    },
+    "s required. This requires new API endpoints for fetching a user": {
+      "platforms": {
+        "backend": 2,
+        "frontend": 2
+      },
+      "count": 2
+    },
+    " this feature in phases. 1. **Database Schema & Migrations:** Create": {
+      "platforms": {
+        "backend": 2,
+        "frontend": 2
+      },
+      "count": 2
+    },
+    "ey Components: Authentication Service (Login Logic), Authorization ": {
+      "platforms": {
+        "backend": 2,
+        "frontend": 2
+      },
+      "count": 2
+    },
+    "quired. This requires new API endpoints for fetching a user's access": {
+      "platforms": {
+        "backend": 2,
+        "frontend": 2
+      },
+      "count": 2
+    },
+    "UI enhancement mockups for effective date display": {
+      "platforms": {
+        "backend": 1,
+        "frontend": 1
+      },
+      "count": 1
+    },
+    "Enhancement first appearance show effective date": {
+      "platforms": {
+        "backend": 1,
+        "frontend": 1
+      },
+      "count": 1
+    },
+    "Effective Date Transaction Assignment": {
+      "platforms": {
+        "backend": 1,
+        "frontend": 1
+      },
+      "count": 1
+    }
+  },
+  "platform_associations": {}
+}
