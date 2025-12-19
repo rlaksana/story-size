@@ -256,10 +256,15 @@ def _get_enhanced_output_text(analysis) -> str:
     lines.append("PLATFORM ANALYSIS:")
     for platform, platform_analysis in analysis.platform_analyses.items():
         if platform_analysis.factors:
-            lines.append(f"")
+            lines.append("")
             lines.append(f"  {platform.upper()}:")
             lines.append(f"    Explanation: {platform_analysis.explanation}")
             lines.append(f"    Approach: {platform_analysis.recommended_approach}")
+            
+            # Display individual factors (DC, IC, IB, DS, NR)
+            lines.append("    Factors:")
+            for factor_name, factor_value in platform_analysis.factors.items():
+                lines.append(f"      {factor_name}: {factor_value}")
 
             if platform_analysis.key_components:
                 lines.append(f"    Key Components: {', '.join(platform_analysis.key_components[:3])}")
@@ -322,6 +327,43 @@ def _save_to_markdown(estimation, output_path: Path, output_format: str, console
                 hours = "N/A"
             lines.append(f"| {platform.upper()} | {sp} | {hours} |")
         lines.append("")
+
+        # Platform analysis with factors
+        lines.append("## Platform Analysis with Factors")
+        lines.append("")
+        
+        for platform, platform_analysis in estimation.platform_analyses.items():
+            lines.append(f"### {platform.upper()}")
+            lines.append("")
+            
+            if platform_analysis.factors:
+                lines.append("**Factors:**")
+                lines.append("")
+                lines.append("| Factor | Score |")
+                lines.append("|--------|-------|")
+                for factor_name, factor_value in platform_analysis.factors.items():
+                    lines.append(f"| {factor_name} | {factor_value} |")
+                lines.append("")
+            
+            lines.append(f"**Explanation:** {platform_analysis.explanation}")
+            lines.append("")
+            lines.append(f"**Recommended Approach:** {platform_analysis.recommended_approach}")
+            lines.append("")
+            
+            if platform_analysis.key_components:
+                lines.append(f"**Key Components:** {', '.join(platform_analysis.key_components)}")
+                lines.append("")
+            
+            if platform_analysis.key_challenges:
+                lines.append(f"**Key Challenges:** {', '.join(platform_analysis.key_challenges)}")
+                lines.append("")
+            
+            if platform_analysis.estimated_hours:
+                lines.append(f"**Estimated Hours:** {platform_analysis.estimated_hours['min']}-{platform_analysis.estimated_hours['max']} hours")
+                lines.append("")
+            
+            lines.append("---")
+            lines.append("")
 
         # Detailed analysis
         lines.append("## Detailed Analysis")
