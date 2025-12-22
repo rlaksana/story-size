@@ -14,6 +14,7 @@ from story_size.core.code_analysis import analyze_all_platforms
 from story_size.core.directory_resolver import DirectoryResolver
 from story_size.core.platform_ai_client import PlatformAwareAIClient
 from story_size.core.models import EnhancedCodeAnalysis
+from story_size.core.hours_estimation import NonLinearEstimator
 
 app = typer.Typer()
 
@@ -38,6 +39,7 @@ def main(
     auto_detect_dirs: bool = typer.Option(False, "--auto-detect-dirs", help="Auto-detect platform directories from code-dir."),
     force_platforms: Optional[str] = typer.Option(None, "--force-platforms", help="Force analysis for specific platforms: frontend,backend,mobile,devops"),
     code_dir: Optional[Path] = typer.Option(None, "--code-dir", help="Code directory for auto-detection or forced platforms.", envvar="DEFAULT_REPO_PATH"),
+    show_all_estimates: bool = typer.Option(False, "--show-all-estimates", help="Show all 4 estimation approaches: Current, Exponential, Power, Fibonacci."),
 
     # Existing Options
     paths: Optional[str] = typer.Option(None, "--paths", help="Comma-separated subpaths to prioritize within each platform directory."),
@@ -79,6 +81,9 @@ def main(
 
     # Auto-save to output directory
     story-size --auto-save
+
+    # Show all estimation approaches
+    story-size --docs-dir docs/ --fe-dir frontend/ --be-dir backend/ --show-all-estimates
     """
 
     # Get docs_dir from environment variable if not provided
@@ -173,8 +178,8 @@ def main(
 
     # Platform-aware analysis
     print("Using platform-aware analysis...")
-    estimation = asyncio.run(_run_platform_analysis(
-        doc_text, platform_dirs, parsed_paths, parsed_languages, config_data, output, force_platforms, doc_result
+    estimation, show_all_estimates = asyncio.run(_run_platform_analysis(
+        doc_text, platform_dirs, parsed_paths, parsed_languages, config_data, output, force_platforms, doc_result, show_all_estimates
     ))
 
     # Handle auto-save to docs directory
@@ -194,12 +199,13 @@ def main(
         output_md = output_dir / output_md
 
     # Output results
-    _output_results(estimation, output, output_md)
+    _output_results(estimation, output, output_md, show_all_estimates, config_data)
 
 
 async def _run_platform_analysis(doc_text: str, platform_dirs, paths: Optional[List[str]],
                                 languages: Optional[List[str]], config_data: dict, output_format: str,
-                                force_platforms: Optional[str], image_analysis: dict = None):
+                                force_platforms: Optional[str], image_analysis: dict = None,
+                                show_all_estimates: bool = False):
     """Run platform-aware analysis"""
 
     # Analyze platform directories
@@ -217,9 +223,9 @@ async def _run_platform_analysis(doc_text: str, platform_dirs, paths: Optional[L
     ai_client = PlatformAwareAIClient(config_data)
     analysis = await ai_client.get_complete_analysis(doc_text, code_analysis, force_platforms, image_analysis)
 
-    return analysis
+    return (analysis, show_all_estimates)
 
-def _output_results(estimation, output_format: str, output_md: Optional[Path] = None):
+def _output_results(estimation, output_format: str, output_md: Optional[Path] = None, show_all_estimates: bool = False, config_data: dict = None):
     """Output analysis results in the specified format"""
 
     # Generate console output
@@ -228,14 +234,14 @@ def _output_results(estimation, output_format: str, output_md: Optional[Path] = 
         print(console_output)
     else:
         # Enhanced platform-aware output (default)
-        console_output = _get_enhanced_output_text(estimation)
+        console_output = _get_enhanced_output_text(estimation, show_all_estimates, config_data)
         print(console_output)
 
     # Save to markdown file if requested
     if output_md:
         _save_to_markdown(estimation, output_md, output_format, console_output)
 
-def _get_enhanced_output_text(analysis) -> str:
+def _get_enhanced_output_text(analysis, show_all_estimates: bool = False, config_data: dict = None) -> str:
     """Get enhanced platform-aware output as text"""
 
     lines = []
@@ -266,6 +272,38 @@ def _get_enhanced_output_text(analysis) -> str:
 
             if platform_analysis.key_challenges:
                 lines.append(f"    Challenges: {', '.join(platform_analysis.key_challenges[:2])}")
+
+    # Add estimation models comparison if requested
+    if show_all_estimates:
+        lines.append("")
+        lines.append("=" * 80)
+        lines.append("HOURS ESTIMATION APPROACHES COMPARISON")
+        lines.append("=" * 80)
+        lines.append("")
+
+        # Initialize estimator with configuration from config file
+        estimator = NonLinearEstimator(config=config_data.get('hours_estimation', {}))
+
+        # Calculate estimates for overall story points
+        models = estimator.calculate_all_models(analysis.overall_story_points)
+        lines.append(f"Overall ({analysis.overall_story_points} SP):")
+        lines.append(f"{'  Model':<25} {'Min Hours':<12} {'Expected':<12} {'Max Hours':<12}")
+        lines.append("-" * 65)
+        for model in models:
+            lines.append(f"  {model.name:<25} {model.min_hours:<12} {model.expected_hours:<12} {model.max_hours:<12}")
+
+        # Show platform-specific estimates
+        for platform, sp in analysis.platform_story_points.items():
+            lines.append("")
+            lines.append(f"{platform.upper()} ({sp} SP):")
+            platform_models = estimator.calculate_all_models(sp)
+            lines.append(f"{'  Model':<25} {'Min Hours':<12} {'Expected':<12} {'Max Hours':<12}")
+            lines.append("-" * 65)
+            for model in platform_models:
+                lines.append(f"  {model.name:<25} {model.min_hours:<12} {model.expected_hours:<12} {model.max_hours:<12}")
+
+        lines.append("")
+        lines.append("=" * 80)
 
     lines.append("")
     lines.append("DETECTION DETAILS:")

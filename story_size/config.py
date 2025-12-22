@@ -69,6 +69,16 @@ DEFAULT_CONFIG = {
         "max_prompt_length": 500000,
         "temperature": 0.2,
         "max_tokens": 1500
+    },
+
+    # Hours estimation configuration
+    "hours_estimation": {
+        "base_hours_per_point": 4.0,
+        "uncertainty_factor_min": 0.6,
+        "uncertainty_factor_max": 1.8,
+        "exponential_k": 0.3,
+        "power_a": 3.0,
+        "power_b": 1.2
     }
 }
 
