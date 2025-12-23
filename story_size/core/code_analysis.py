@@ -142,8 +142,8 @@ def analyze_platform_code(
     # Calculate platform complexity indicators
     complexity_indicators = calculate_platform_complexity(analysis, platform)
 
-    # Generate project tree for AI context (depth 7 for enterprise projects)
-    project_tree = generate_project_tree(platform_dir, until_depth=7)
+    # Generate project tree for AI context (maximum depth for complete structure)
+    project_tree = generate_project_tree(platform_dir, until_depth=99)
 
     return PlatformCodeSummary(
         platform=platform,
