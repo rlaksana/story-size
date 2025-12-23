@@ -3,6 +3,62 @@ from typing import Dict, List, Optional
 from story_size.core.models import PlatformCodeSummary, EnhancedCodeAnalysis, PlatformDirectories
 from story_size.core.directory_resolver import DirectoryResolver
 
+
+def generate_project_tree(platform_dir: Path, until_depth: int = 3) -> str:
+    """
+    Generate hierarchical tree view of platform directory.
+
+    Args:
+        platform_dir: Root directory to generate tree from
+        until_depth: Maximum depth to traverse (default: 3 levels)
+
+    Returns:
+        String representation of directory tree with ASCII art connectors
+    """
+    if not platform_dir or not platform_dir.exists():
+        return f"{platform_dir.name if platform_dir else '(empty)'} (directory not found)"
+
+    tree_lines = []
+    root_name = platform_dir.name
+    tree_lines.append(root_name + "/")
+
+    # Skip common directories to ignore
+    skip_dirs = {'.git', '.idea', '.vscode', 'node_modules', '__pycache__',
+                 '.dart_tool', 'build', 'dist', 'bin', 'obj', '.venv', 'venv',
+                 'target', '.next', '.nuxt', 'vendor', 'coverage'}
+
+    # Skip common file patterns
+    skip_files = {'.gitignore', '.ds_store', 'thumbs.db', 'desktop.ini',
+                  'package-lock.json', 'yarn.lock', 'pubspec.lock', '.gitkeep'}
+
+    def add_tree(path: Path, prefix: str = "", depth: int = 0):
+        if depth > until_depth:
+            return
+
+        try:
+            items = sorted(path.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower()))
+            # Filter out skipped items
+            items = [item for item in items
+                     if item.name.lower() not in skip_dirs
+                     and item.name.lower() not in skip_files
+                     and not item.name.startswith('.')]
+
+            for i, item in enumerate(items):
+                is_last = i == len(items) - 1
+                connector = "└── " if is_last else "├── "
+                item_suffix = "/" if item.is_dir() else ""
+                tree_lines.append(f"{prefix}{connector}{item.name}{item_suffix}")
+
+                if item.is_dir():
+                    next_prefix = prefix + ("    " if is_last else "│   ")
+                    add_tree(item, next_prefix, depth + 1)
+        except (PermissionError, OSError):
+            pass
+
+    add_tree(platform_dir)
+    return "\n".join(tree_lines)
+
+
 SUPPORTED_LANGUAGES = {
     "csharp": [".cs"],
     "typescript": [".ts", ".tsx"],
@@ -34,7 +90,8 @@ def analyze_platform_code(
             languages_detected=[],
             key_files=[],
             loc_by_language={},
-            complexity_indicators={}
+            complexity_indicators={},
+            project_tree=None
         )
 
     # Get platform-specific language priorities, but filter to supported languages
@@ -85,6 +142,9 @@ def analyze_platform_code(
     # Calculate platform complexity indicators
     complexity_indicators = calculate_platform_complexity(analysis, platform)
 
+    # Generate project tree for AI context
+    project_tree = generate_project_tree(platform_dir, until_depth=3)
+
     return PlatformCodeSummary(
         platform=platform,
         directory=platform_dir,
@@ -92,7 +152,8 @@ def analyze_platform_code(
         languages_detected=analysis["languages_seen"],
         key_files=key_files,
         loc_by_language=analysis["loc_by_language"],
-        complexity_indicators=complexity_indicators
+        complexity_indicators=complexity_indicators,
+        project_tree=project_tree
     )
 
 def get_platform_primary_languages(platform: str, user_languages: Optional[List[str]]) -> List[str]:

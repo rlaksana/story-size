@@ -63,6 +63,7 @@ class PlatformCodeSummary(BaseModel):
     key_files: List[str]
     loc_by_language: Dict[str, int]
     complexity_indicators: Dict[str, Any] = {}
+    project_tree: Optional[str] = None  # Hierarchical directory structure for AI context
 
 class EnhancedCodeAnalysis(BaseModel):
     platform_summaries: Dict[str, PlatformCodeSummary]

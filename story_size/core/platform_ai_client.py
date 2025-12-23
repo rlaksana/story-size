@@ -293,7 +293,7 @@ Response format (JSON):
             raise Exception(f"Platform-aware analysis failed and no fallback available: {e}")
 
     def _generate_platform_structure_analysis(self, code_analysis: EnhancedCodeAnalysis) -> str:
-        """Generate structured analysis of available platform code"""
+        """Generate structured analysis of available platform code with project tree"""
 
         structure_lines = []
         if code_analysis.platform_summaries:
@@ -306,6 +306,13 @@ Response format (JSON):
                     if summary.complexity_indicators:
                         loc = summary.complexity_indicators.get("total_loc", 0)
                         structure_lines.append(f"  - Lines of Code: {loc}")
+
+                    # Add project tree for better AI context
+                    if summary.project_tree:
+                        structure_lines.append(f"  - Project Structure:")
+                        for tree_line in summary.project_tree.split("\n"):
+                            structure_lines.append(f"    {tree_line}")
+
                     structure_lines.append("")
 
         return "\n".join(structure_lines) if structure_lines else "No platform-specific code detected."
