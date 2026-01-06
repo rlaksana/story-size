@@ -1,12 +1,25 @@
 import os
 import json
 import requests
-from typing import Dict, Optional
+from typing import Dict, Optional, List
+from pathlib import Path
+
 from story_size.core.models import (
     PlatformDetection, PlatformAnalysis, CompleteAnalysis,
     PlatformRequirement, EnhancedCodeAnalysis
 )
 from story_size.core.platform_detector import PlatformDetector
+from story_size.core.context_detector import (
+    auto_detect_context,
+    RiskKeywordDetector,
+    LegacyStatusDetector,
+    TrafficVolumeDetector
+)
+from story_size.core.impact_analyzer import (
+    ImpactAnalyzer,
+    ImpactScope,
+    analyze_all_platforms_impact
+)
 
 class PlatformAwareAIClient:
     def __init__(self, config_data: dict):
@@ -251,7 +264,8 @@ Response format (JSON):
                                   doc_summary: str,
                                   code_analysis: EnhancedCodeAnalysis,
                                   force_platforms: Optional[str] = None,
-                                  image_analysis: dict = None) -> CompleteAnalysis:
+                                  image_analysis: dict = None,
+                                  code_dir: Path = None) -> CompleteAnalysis:
         """Run both stages and return combined results"""
 
         try:
@@ -267,6 +281,25 @@ Response format (JSON):
             print(f"Work item type: {platform_detection.work_item_type}")
             print(f"Complexity level: {platform_detection.complexity_level}")
 
+            # Stage 1.5: Impact Analysis (NEW!)
+            print("Stage 1.5: Analyzing impact scope...")
+            impact_scopes = analyze_all_platforms_impact(doc_summary, code_analysis)
+
+            for platform, impact in impact_scopes.items():
+                print(f"  {platform.upper()}: {impact.total_affected_files} files affected ({impact.impact_ratio:.1%})")
+
+            # Auto-detect context for transparency
+            if code_dir:
+                context_summary = self.get_context_summary(code_dir, doc_summary)
+                if context_summary:
+                    print(f"[Auto-detected Context]")
+                    if context_summary.get("legacy_status"):
+                        print(f"  Legacy Status: {context_summary['legacy_status']}")
+                    if context_summary.get("traffic_volume"):
+                        print(f"  Traffic Volume: {context_summary['traffic_volume']}")
+                    if context_summary.get("risk_multiplier", 1.0) > 1.0:
+                        print(f"  Risk Multiplier: {context_summary['risk_multiplier']}")
+
             # Stage 2: Analyze each required platform
             platform_analyses = {}
             for platform in platform_detection.estimated_platforms:
@@ -276,8 +309,15 @@ Response format (JSON):
                 )
                 print(f"{platform} analysis complete")
 
-            # Calculate story points
-            story_points_data = await self._calculate_story_points(platform_analyses, platform_detection)
+            # Calculate story points with enhanced formula (impact × integration × risk)
+            story_points_data = await self._calculate_story_points(
+                platform_analyses,
+                platform_detection,
+                code_analysis,
+                code_dir,
+                doc_summary,
+                impact_scopes  # NEW: Pass impact scopes
+            )
 
             return CompleteAnalysis(
                 platform_detection=platform_detection,
@@ -470,32 +510,181 @@ DEVOPS ANALYSIS FACTORS:
             raise RuntimeError(f"Error parsing LLM response: {e}\nResponse content saved to debug_response.txt")
 
     async def _calculate_story_points(self, platform_analyses: Dict[str, PlatformAnalysis],
-                                   platform_detection: PlatformDetection) -> Dict[str, int]:
-        """Calculate story points for each platform and overall"""
+                                   platform_detection: PlatformDetection,
+                                   code_analysis: EnhancedCodeAnalysis = None,
+                                   code_dir: Path = None,
+                                   doc_summary: str = "",
+                                   impact_scopes: Dict[str, ImpactScope] = None) -> Dict[str, int]:
+        """
+        Calculate story points using the Enhanced Formula from Gemini discussion:
+
+        1. Calculate base platform scores (AI complexity assessment)
+        2. Apply impact tax multiplier (based on affected files ratio)
+        3. Apply integration overhead (context switching + glue cost)
+        4. Apply risk multiplier (uncertainty buffer)
+        5. Map to nearest Fibonacci number
+
+        REVISED Formula: final_score = base_score × impact_tax × integration_multiplier × risk_multiplier
+
+        KEY CHANGE: Impact is a TAX (multiplier), not a FILTER (reducer).
+        - Small impact doesn't reduce the score for complex tasks
+        - Large impact adds overhead for testing/deployment
+        """
 
         platform_story_points = {}
-        total_score = 0
+        platform_scores = {}
+        platform_impact_tiers = {}
 
+        # Step 1: Calculate base platform scores (unchanged - this is the AI complexity assessment)
         for platform, analysis in platform_analyses.items():
             if analysis.factors:
-                # Calculate platform score from factors
                 platform_score = sum(analysis.factors.values())
+                platform_scores[platform] = platform_score
 
-                # Map to story points using configurable mapping
-                platform_sp = self._map_score_to_story_points(platform_score)
+                # Calculate impact tax multiplier (not a reducer!)
+                impact_tax = 1.0  # Default: no extra tax
+                impact_tier = "LOCAL (< 1%)"
+
+                if impact_scopes and platform in impact_scopes:
+                    impact = impact_scopes[platform]
+                    impact_ratio = impact.impact_ratio
+
+                    # Map impact ratio to risk tier (Integration Tax)
+                    if impact_ratio < 0.01:
+                        # < 1%: Local change, no integration risk
+                        impact_tax = 1.0
+                        impact_tier = "LOCAL (< 1%)"
+                    elif impact_ratio < 0.05:
+                        # 1-5%: Module-level, integration testing needed
+                        impact_tax = 1.2
+                        impact_tier = "MODULE (1-5%)"
+                    elif impact_ratio < 0.10:
+                        # 5-10%: System-level, regression testing needed
+                        impact_tax = 1.5
+                        impact_tier = "SYSTEM (5-10%)"
+                    else:
+                        # > 10%: Architectural change, high danger
+                        impact_tax = 2.0
+                        impact_tier = "ARCHITECTURAL (> 10%)"
+
+                    platform_impact_tiers[platform] = impact_tier
+
+                    # Print impact info
+                    print(f"\n[Impact Analysis: {platform.upper()}]")
+                    print(f"  Extracted entities: {', '.join(impact.extracted_entities[:5])}")
+                    print(f"  Directly affected files: {len(impact.directly_affected_files)}")
+                    print(f"  Cascading changes: {len(impact.cascading_affected_files)}")
+                    print(f"  Total affected: {impact.total_affected_files} / {impact.total_files_in_platform} "
+                          f"({impact_ratio:.1%})")
+                    print(f"  Impact Tier: {impact_tier} → {impact_tax:.1f}× integration tax")
+                    print(f"  Confidence: {impact.confidence:.2f}")
+                else:
+                    # No impact analysis available, assume full platform impact
+                    impact_tax = 1.5
+                    impact_tier = "UNKNOWN (assumed SYSTEM)"
+                    platform_impact_tiers[platform] = impact_tier
+
+                # Apply impact tax to get adjusted score
+                adjusted_score = platform_score * impact_tax
+                platform_sp = self._map_score_to_story_points(int(adjusted_score))
                 platform_story_points[platform] = platform_sp
-                total_score += platform_score
 
-        # Calculate overall story points (weighted average)
-        if platform_story_points:
-            overall_sp = self._map_score_to_story_points(total_score // len(platform_story_points))
-        else:
-            overall_sp = 3  # Default
+        # Auto-detect context from codebase and requirements
+        context_data = auto_detect_context(code_dir, doc_summary) if code_dir else {}
+        risk_multiplier = context_data.get("risk_multiplier", 1.0)
+        legacy_status = context_data.get("legacy_status", "greenfield")
+        traffic_volume = context_data.get("traffic_volume", "no_traffic")
+
+        # Step 2: Calculate integration overhead (context switching between platforms)
+        platform_count = len(platform_scores)
+        integration_multiplier = self._calculate_integration_overhead(
+            platform_count,
+            legacy_status,
+            traffic_volume
+        )
+
+        # Step 3: Apply enhanced formula with correct math
+        base_sum = sum(platform_scores.values()) if platform_scores else 0
+
+        # Apply multipliers in sequence (not reducing, but adding overhead)
+        after_impact_tax = base_sum  # Impact tax already applied per-platform above
+        after_integration = after_impact_tax * integration_multiplier
+        final_score = after_integration * risk_multiplier
+
+        # Step 4: Map to Fibonacci
+        overall_sp = self._map_score_to_story_points(int(final_score))
+
+        # Print calculation information for transparency
+        print(f"\n[Enhanced Calculation]")
+        print(f"  Platform scores (base → after impact tax):")
+        for platform, base_score in platform_scores.items():
+            if platform in platform_impact_tiers:
+                tier = platform_impact_tiers[platform]
+                tax = 1.0 if "LOCAL" in tier else (1.2 if "MODULE" in tier else (1.5 if "SYSTEM" in tier else 2.0))
+                adjusted = base_score * tax
+                print(f"    {platform}: {base_score:.2f} → {adjusted:.2f} ({tier}, {tax:.1f}×)")
+        print(f"  Base sum: {base_sum:.2f}")
+        print(f"  Integration multiplier: {integration_multiplier:.2f} "
+              f"(platforms={platform_count}, legacy={legacy_status}, traffic={traffic_volume})")
+        print(f"  Risk multiplier: {risk_multiplier:.2f}")
+        print(f"  Final score: {final_score:.2f} -> {overall_sp} story points")
 
         return {
             "by_platform": platform_story_points,
-            "overall": overall_sp
+            "overall": overall_sp,
+            "base_sum": base_sum,
+            "integration_multiplier": integration_multiplier,
+            "risk_multiplier": risk_multiplier,
+            "final_score": final_score,
+            "platform_impact_tiers": platform_impact_tiers
         }
+
+    def _calculate_integration_overhead(self, platform_count: int,
+                                       legacy_status: str,
+                                       traffic_volume: str) -> float:
+        """
+        Calculate integration overhead multiplier based on:
+
+        1. Context Switching: Working across multiple platforms
+        2. Integration Complexity: Legacy status and traffic volume
+        """
+
+        # Base multiplier: 1.0 (no overhead)
+        context_switching_multiplier = 1.0
+        integration_complexity_multiplier = 1.0
+
+        # Context switching cost (0-50% overhead based on platform count)
+        if platform_count >= 4:
+            context_switching_multiplier = 1.5
+        elif platform_count == 3:
+            context_switching_multiplier = 1.3
+        elif platform_count == 2:
+            context_switching_multiplier = 1.15
+        else:
+            context_switching_multiplier = 1.0
+
+        # Integration complexity based on legacy status
+        legacy_multiplier = {
+            "greenfield": 1.0,
+            "low_legacy": 1.05,
+            "moderate_legacy": 1.15,
+            "high_legacy": 1.25,
+            "critical_legacy": 1.4
+        }.get(legacy_status, 1.0)
+
+        # Integration complexity based on traffic volume
+        traffic_multiplier = {
+            "no_traffic": 1.0,
+            "low_traffic": 1.02,
+            "medium_traffic": 1.08,
+            "high_traffic": 1.15,
+            "critical_traffic": 1.25
+        }.get(traffic_volume, 1.0)
+
+        integration_complexity_multiplier = legacy_multiplier * traffic_multiplier
+
+        # Combined multiplier
+        return context_switching_multiplier * integration_complexity_multiplier
 
     def _map_score_to_story_points(self, score: int) -> int:
         """Map complexity score to Fibonacci story points"""
@@ -514,5 +703,17 @@ DEVOPS ANALYSIS FACTORS:
             return 8
         else:
             return 13
+
+    def get_context_summary(self, code_dir: Path, doc_summary: str) -> dict:
+        """
+        Get detected context summary for transparency/debugging.
+
+        Returns:
+            Dictionary with legacy status, traffic volume, tech stack, risk keywords
+        """
+        if not code_dir or not code_dir.exists():
+            return {}
+
+        return auto_detect_context(code_dir, doc_summary)
 
     

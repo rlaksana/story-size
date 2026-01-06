@@ -219,9 +219,28 @@ async def _run_platform_analysis(doc_text: str, platform_dirs, paths: Optional[L
         if summary.files_estimated > 0:
             print(f"  {platform.upper()}: {summary.files_estimated} files, {', '.join(summary.languages_detected)}")
 
-    # Run platform-aware AI analysis
+    # Extract code_dir for context detection (use first available platform directory)
+    code_dir = None
+    if platform_dirs.unified_dir:
+        code_dir = platform_dirs.unified_dir
+    elif platform_dirs.fe_dir:
+        code_dir = platform_dirs.fe_dir
+    elif platform_dirs.be_dir:
+        code_dir = platform_dirs.be_dir
+    elif platform_dirs.mobile_dir:
+        code_dir = platform_dirs.mobile_dir
+    elif platform_dirs.devops_dir:
+        code_dir = platform_dirs.devops_dir
+
+    # Run platform-aware AI analysis with auto-detected context
     ai_client = PlatformAwareAIClient(config_data)
-    analysis = await ai_client.get_complete_analysis(doc_text, code_analysis, force_platforms, image_analysis)
+    analysis = await ai_client.get_complete_analysis(
+        doc_text,
+        code_analysis,
+        force_platforms,
+        image_analysis,
+        code_dir  # Pass code_dir for auto context detection
+    )
 
     return (analysis, show_all_estimates)
 
