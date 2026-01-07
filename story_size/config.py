@@ -26,6 +26,8 @@ DEFAULT_CONFIG = {
         "sp5_max": 16,
         "sp8_max": 20,
         "sp13_max": 25,
+        "sp21_max": 35,  # Extended for enterprise multi-platform projects
+        "sp34_max": 50,  # Extended for large-scale features
     },
 
     # Enhanced platform-aware configuration
@@ -52,8 +54,10 @@ DEFAULT_CONFIG = {
     },
 
     "platform_mapping": {
-        # Platform-specific story point ranges
+        # Platform-specific story point ranges (extended for enterprise)
         "sp1_max": 5, "sp2_max": 8, "sp3_max": 12, "sp5_max": 16, "sp8_max": 20, "sp13_max": 25,
+        "sp21_max": 35,  # Extended for enterprise multi-platform projects
+        "sp34_max": 50,  # Extended for large-scale features
 
         # Platform complexity thresholds
         "frontend": {"sp1_max": 4, "sp2_max": 7, "sp3_max": 11, "sp5_max": 15, "sp8_max": 19},
@@ -227,13 +231,15 @@ def save_sample_config(output_path: Path):
         },
 
         "mapping": {
-            "# Traditional story point mapping ranges": None,
+            "# Traditional story point mapping ranges (extended for enterprise)": None,
             "sp1_max": 7,
             "sp2_max": 10,
             "sp3_max": 13,
             "sp5_max": 16,
             "sp8_max": 20,
-            "sp13_max": 25
+            "sp13_max": 25,
+            "sp21_max": 35,  # Extended for multi-platform projects
+            "sp34_max": 50   # Extended for large-scale features
         },
 
         "platform_detection": {
@@ -245,8 +251,10 @@ def save_sample_config(output_path: Path):
         },
 
         "platform_mapping": {
-            "# Platform-specific story point mapping": None,
+            "# Platform-specific story point mapping (extended for enterprise)": None,
             "sp1_max": 5, "sp2_max": 8, "sp3_max": 12, "sp5_max": 16, "sp8_max": 20, "sp13_max": 25,
+            "sp21_max": 35,  # Extended for multi-platform projects
+            "sp34_max": 50,  # Extended for large-scale features
             "frontend": {"sp1_max": 4, "sp2_max": 7, "sp3_max": 11, "sp5_max": 15, "sp8_max": 19},
             "backend": {"sp1_max": 5, "sp2_max": 8, "sp3_max": 12, "sp5_max": 17, "sp8_max": 22},
             "mobile": {"sp1_max": 4, "sp2_max": 7, "sp3_max": 10, "sp5_max": 14, "sp8_max": 18},

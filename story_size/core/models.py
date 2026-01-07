@@ -130,6 +130,9 @@ class CompleteAnalysis(BaseModel):
     confidence_score: float
     analysis_timestamp: datetime = Field(default_factory=datetime.now)
 
+    # NEW: Calculation breakdown for transparency
+    calculation_breakdown: Optional[Dict[str, Any]] = None  # Raw scores, multipliers, intermediate values
+
 class EnhancedEstimation(BaseModel):
     """Enhanced estimation model that includes both traditional and platform-aware analysis"""
     traditional_estimation: Optional[Estimation] = None  # Backward compatibility

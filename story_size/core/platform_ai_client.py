@@ -1,8 +1,12 @@
 import os
 import json
 import requests
+import warnings  # NEW: Suppress warnings from other libraries
 from typing import Dict, Optional, List
 from pathlib import Path
+
+# Suppress warnings from imported packages (e.g., PyTorch, TensorFlow, etc.)
+warnings.filterwarnings("ignore", category=UserWarning)
 
 from story_size.core.models import (
     PlatformDetection, PlatformAnalysis, CompleteAnalysis,
@@ -281,24 +285,26 @@ Response format (JSON):
             print(f"Work item type: {platform_detection.work_item_type}")
             print(f"Complexity level: {platform_detection.complexity_level}")
 
-            # Stage 1.5: Impact Analysis (NEW!)
-            print("Stage 1.5: Analyzing impact scope...")
-            impact_scopes = analyze_all_platforms_impact(doc_summary, code_analysis)
+            # Stage 1.5: Impact Analysis (DISABLED - too slow for large codebases)
+            # TODO: Re-enable after optimizing for performance (async file scanning, caching, etc.)
+            # print("Stage 1.5: Analyzing impact scope...")
+            # impact_scopes = analyze_all_platforms_impact(doc_summary, code_analysis)
+            # for platform, impact in impact_scopes.items():
+            #     print(f"  {platform.upper()}: {impact.total_affected_files} files affected ({impact.impact_ratio:.1%})")
+            impact_scopes = None  # Pass None to _calculate_story_points
 
-            for platform, impact in impact_scopes.items():
-                print(f"  {platform.upper()}: {impact.total_affected_files} files affected ({impact.impact_ratio:.1%})")
-
-            # Auto-detect context for transparency
-            if code_dir:
-                context_summary = self.get_context_summary(code_dir, doc_summary)
-                if context_summary:
-                    print(f"[Auto-detected Context]")
-                    if context_summary.get("legacy_status"):
-                        print(f"  Legacy Status: {context_summary['legacy_status']}")
-                    if context_summary.get("traffic_volume"):
-                        print(f"  Traffic Volume: {context_summary['traffic_volume']}")
-                    if context_summary.get("risk_multiplier", 1.0) > 1.0:
-                        print(f"  Risk Multiplier: {context_summary['risk_multiplier']}")
+            # Auto-detect context for transparency (DISABLED - too slow for large codebases)
+            # TODO: Re-enable after optimizing for performance (async file scanning, caching, etc.)
+            # if code_dir:
+            #     context_summary = self.get_context_summary(code_dir, doc_summary)
+            #     if context_summary:
+            #         print(f"[Auto-detected Context]")
+            #         if context_summary.get("legacy_status"):
+            #             print(f"  Legacy Status: {context_summary['legacy_status']}")
+            #         if context_summary.get("traffic_volume"):
+            #             print(f"  Traffic Volume: {context_summary['traffic_volume']}")
+            #         if context_summary.get("risk_multiplier", 1.0) > 1.0:
+            #             print(f"  Risk Multiplier: {context_summary['risk_multiplier']}")
 
             # Stage 2: Analyze each required platform
             platform_analyses = {}
@@ -309,7 +315,7 @@ Response format (JSON):
                 )
                 print(f"{platform} analysis complete")
 
-            # Calculate story points with enhanced formula (impact × integration × risk)
+            # Calculate story points with enhanced formula (impact x integration x risk)
             story_points_data = await self._calculate_story_points(
                 platform_analyses,
                 platform_detection,
@@ -324,16 +330,22 @@ Response format (JSON):
                 platform_analyses=platform_analyses,
                 overall_story_points=story_points_data["overall"],
                 platform_story_points=story_points_data["by_platform"],
-                confidence_score=platform_detection.confidence
+                confidence_score=platform_detection.confidence,
+                calculation_breakdown=story_points_data.get("calculation_breakdown")  # NEW: Pass calculation details
             )
 
         except Exception as e:
+            import traceback
             print(f"Platform-aware analysis failed: {e}")
+            print("\n[FULL TRACEBACK]")
+            traceback.print_exc()
+            print("\n[END TRACEBACK]\n")
             # Re-raise the exception since traditional fallback is removed
             raise Exception(f"Platform-aware analysis failed and no fallback available: {e}")
 
-    def _generate_platform_structure_analysis(self, code_analysis: EnhancedCodeAnalysis) -> str:
-        """Generate structured analysis of available platform code with project tree"""
+    def _generate_platform_structure_analysis(self, code_analysis: EnhancedCodeAnalysis,
+                                          include_tree: bool = False, max_tree_lines: int = 50) -> str:
+        """Generate structured analysis of available platform code with optional project tree"""
 
         structure_lines = []
         if code_analysis.platform_summaries:
@@ -347,11 +359,15 @@ Response format (JSON):
                         loc = summary.complexity_indicators.get("total_loc", 0)
                         structure_lines.append(f"  - Lines of Code: {loc}")
 
-                    # Add project tree for better AI context
-                    if summary.project_tree:
-                        structure_lines.append(f"  - Project Structure:")
-                        for tree_line in summary.project_tree.split("\n"):
+                    # Add project tree for better AI context (ONLY when explicitly requested)
+                    # For platform detection, skip the tree to avoid context overflow
+                    if include_tree and summary.project_tree:
+                        structure_lines.append(f"  - Project Structure (truncated to {max_tree_lines} lines):")
+                        tree_lines = summary.project_tree.split("\n")
+                        for tree_line in tree_lines[:max_tree_lines]:
                             structure_lines.append(f"    {tree_line}")
+                        if len(tree_lines) > max_tree_lines:
+                            structure_lines.append(f"    ... ({len(tree_lines) - max_tree_lines} more lines omitted)")
 
                     structure_lines.append("")
 
@@ -524,7 +540,7 @@ DEVOPS ANALYSIS FACTORS:
         4. Apply risk multiplier (uncertainty buffer)
         5. Map to nearest Fibonacci number
 
-        REVISED Formula: final_score = base_score × impact_tax × integration_multiplier × risk_multiplier
+        REVISED Formula: final_score = base_score x impact_tax x integration_multiplier x risk_multiplier
 
         KEY CHANGE: Impact is a TAX (multiplier), not a FILTER (reducer).
         - Small impact doesn't reduce the score for complex tasks
@@ -576,7 +592,7 @@ DEVOPS ANALYSIS FACTORS:
                     print(f"  Cascading changes: {len(impact.cascading_affected_files)}")
                     print(f"  Total affected: {impact.total_affected_files} / {impact.total_files_in_platform} "
                           f"({impact_ratio:.1%})")
-                    print(f"  Impact Tier: {impact_tier} → {impact_tax:.1f}× integration tax")
+                    print(f"  Impact Tier: {impact_tier} -> {impact_tax:.1f}x integration tax")
                     print(f"  Confidence: {impact.confidence:.2f}")
                 else:
                     # No impact analysis available, assume full platform impact
@@ -589,11 +605,27 @@ DEVOPS ANALYSIS FACTORS:
                 platform_sp = self._map_score_to_story_points(int(adjusted_score))
                 platform_story_points[platform] = platform_sp
 
-        # Auto-detect context from codebase and requirements
-        context_data = auto_detect_context(code_dir, doc_summary) if code_dir else {}
-        risk_multiplier = context_data.get("risk_multiplier", 1.0)
-        legacy_status = context_data.get("legacy_status", "greenfield")
-        traffic_volume = context_data.get("traffic_volume", "no_traffic")
+        # Auto-detect context from codebase and requirements (with performance safeguards)
+        # Use fast mode: limit file scanning to avoid hangs on large codebases
+        context_data = {}
+        if code_dir and code_dir.exists():
+            try:
+                # Import here to avoid circular dependency
+                import asyncio
+
+                # Run with timeout to prevent hanging
+                context_data = await asyncio.wait_for(
+                    asyncio.to_thread(auto_detect_context, code_dir, doc_summary),
+                    timeout=30.0  # 30 second timeout
+                )
+            except asyncio.TimeoutError:
+                print(f"  [WARN] Context detection timed out (large codebase), using defaults")
+            except Exception as e:
+                print(f"  [WARN] Context detection failed: {e}, using defaults")
+
+        risk_multiplier = context_data.get("risk_multiplier", 1.0) if context_data else 1.0
+        legacy_status = context_data.get("legacy_status", "greenfield") if context_data else "greenfield"
+        traffic_volume = context_data.get("traffic_volume", "no_traffic") if context_data else "no_traffic"
 
         # Step 2: Calculate integration overhead (context switching between platforms)
         platform_count = len(platform_scores)
@@ -616,18 +648,48 @@ DEVOPS ANALYSIS FACTORS:
 
         # Print calculation information for transparency
         print(f"\n[Enhanced Calculation]")
-        print(f"  Platform scores (base → after impact tax):")
+        print(f"  Platform scores (base -> after impact tax):")
         for platform, base_score in platform_scores.items():
             if platform in platform_impact_tiers:
                 tier = platform_impact_tiers[platform]
                 tax = 1.0 if "LOCAL" in tier else (1.2 if "MODULE" in tier else (1.5 if "SYSTEM" in tier else 2.0))
                 adjusted = base_score * tax
-                print(f"    {platform}: {base_score:.2f} → {adjusted:.2f} ({tier}, {tax:.1f}×)")
+                print(f"    {platform}: {base_score:.2f} -> {adjusted:.2f} ({tier}, {tax:.1f}x)")
         print(f"  Base sum: {base_sum:.2f}")
         print(f"  Integration multiplier: {integration_multiplier:.2f} "
               f"(platforms={platform_count}, legacy={legacy_status}, traffic={traffic_volume})")
         print(f"  Risk multiplier: {risk_multiplier:.2f}")
         print(f"  Final score: {final_score:.2f} -> {overall_sp} story points")
+
+        # Build detailed breakdown for report
+        platform_breakdown = {}
+        for platform, base_score in platform_scores.items():
+            tax = 1.0  # Default
+            tier = "UNKNOWN"
+            if platform in platform_impact_tiers:
+                tier = platform_impact_tiers[platform]
+                tax = 1.0 if "LOCAL" in tier else (1.2 if "MODULE" in tier else (1.5 if "SYSTEM" in tier else 2.0))
+
+            adjusted = base_score * tax
+            platform_breakdown[platform] = {
+                "raw_score": base_score,
+                "impact_tax": tax,
+                "impact_tier": tier,
+                "adjusted_score": adjusted,
+                "story_points": platform_story_points.get(platform, 0)
+            }
+
+        calculation_breakdown = {
+            "platform_breakdown": platform_breakdown,
+            "base_sum": base_sum,
+            "integration_multiplier": integration_multiplier,
+            "risk_multiplier": risk_multiplier,
+            "final_score": final_score,
+            "overall_story_points": overall_sp,
+            "platform_count": platform_count,
+            "legacy_status": legacy_status,
+            "traffic_volume": traffic_volume
+        }
 
         return {
             "by_platform": platform_story_points,
@@ -636,7 +698,8 @@ DEVOPS ANALYSIS FACTORS:
             "integration_multiplier": integration_multiplier,
             "risk_multiplier": risk_multiplier,
             "final_score": final_score,
-            "platform_impact_tiers": platform_impact_tiers
+            "platform_impact_tiers": platform_impact_tiers,
+            "calculation_breakdown": calculation_breakdown  # NEW: Detailed breakdown
         }
 
     def _calculate_integration_overhead(self, platform_count: int,
@@ -687,7 +750,11 @@ DEVOPS ANALYSIS FACTORS:
         return context_switching_multiplier * integration_complexity_multiplier
 
     def _map_score_to_story_points(self, score: int) -> int:
-        """Map complexity score to Fibonacci story points"""
+        """Map complexity score to Fibonacci story points
+
+        Extended Fibonacci sequence for enterprise multi-platform projects:
+        0, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89...
+        """
 
         mapping = self.config_data.get("platform_mapping", {})
 
@@ -701,8 +768,14 @@ DEVOPS ANALYSIS FACTORS:
             return 5
         elif score <= mapping.get("sp8_max", 20):
             return 8
-        else:
+        elif score <= mapping.get("sp13_max", 25):
             return 13
+        elif score <= mapping.get("sp21_max", 35):
+            return 21
+        elif score <= mapping.get("sp34_max", 50):
+            return 34
+        else:
+            return 55  # Cap at 55 for very large enterprise features
 
     def get_context_summary(self, code_dir: Path, doc_summary: str) -> dict:
         """
