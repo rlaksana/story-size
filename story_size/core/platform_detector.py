@@ -35,7 +35,7 @@ class PlatformDetector:
         # First check learned patterns (higher priority as they're based on corrections)
         learned_result = self.learning_system.get_improved_detection(doc_text)
         if learned_result and learned_result.get("confidence", 0) > 0.7:
-            return {
+            result = {
                 "detected_platforms": learned_result["platforms"],
                 "confidence": learned_result["confidence"],
                 "reasoning": f"{learned_result['source']} (confidence: {learned_result['confidence']:.2f})",
@@ -43,9 +43,33 @@ class PlatformDetector:
                 "learned_data": learned_result
             }
 
+            # If this is a learned application pattern, also add guaranteed platforms from config
+            if learned_result.get("type") == "application_match":
+                # Find the app name from the learned result
+                for app_name, app_data in self.learning_system.patterns.get("application_patterns", {}).items():
+                    if app_data["platforms"] == learned_result["platforms"]:
+                        # Found the app, get guaranteed platforms from config
+                        app_config = self.context.get("applications", {}).get(app_name)
+                        if app_config:
+                            result["guaranteed_platforms"] = app_config.get("guaranteed_platforms", app_config["platforms"])
+                            result["application_match"] = app_name
+                            result["all_documented_platforms"] = app_config.get("all_platforms", app_config["platforms"])
+                        break
+
+            return result
+
         # Then check for known applications from config
         for app_name, app_info in self.context.get("applications", {}).items():
-            if app_name.lower() in doc_lower:
+            # Check both full name and abbreviations (from indicators)
+            search_terms = [app_name.lower()]
+            # Add common abbreviations from indicators
+            for indicator in app_info.get("indicators", []):
+                if "(" in indicator and ")" in indicator:
+                    # This is an abbreviation like "(AC)"
+                    search_terms.append(indicator.lower())
+
+            # Check if any search term is in the document
+            if any(term in doc_lower for term in search_terms):
                 # Check if we have learned corrections for this app
                 app_patterns = self.learning_system.patterns.get("application_patterns", {})
                 if app_name in app_patterns:
@@ -64,7 +88,8 @@ class PlatformDetector:
                         "confidence": 0.9,
                         "reasoning": f"Recognized application '{app_name}' which is a {app_info['type']} application",
                         "application_match": app_name,
-                        "source": "config"
+                        "source": "config",
+                        "all_documented_platforms": app_info.get("all_platforms", app_info["platforms"])  # ALL platforms this app uses
                     }
 
         # If no known app found, use pattern matching
@@ -72,20 +97,28 @@ class PlatformDetector:
             "mobile": self._count_indicators(doc_lower, "mobile_indicators"),
             "frontend": self._count_indicators(doc_lower, "web_indicators"),
             "backend": self._count_indicators(doc_lower, "web_indicators") * 0.8,  # Backend often implied
-            "desktop": self._count_indicators(doc_lower, "desktop_indicators")
         }
-
-        # Apply heuristics
-        if "human resources" in doc_lower or "hr" in doc_lower:
-            # HR systems are commonly web-based
-            platform_scores["frontend"] += 0.2
-            platform_scores["backend"] += 0.2
 
         # Determine detected platforms
         detected_platforms = []
         for platform, score in platform_scores.items():
             if score > 0.1:  # Threshold
                 detected_platforms.append(platform)
+
+        # Check for abbreviations to provide application context
+        application_match = None
+        for app_name, app_info in self.context.get("applications", {}).items():
+            for indicator in app_info.get("indicators", []):
+                if "(" in indicator and ")" in indicator:
+                    if indicator.lower() in doc_lower:
+                        application_match = app_name
+                        # Add the app's platforms to detected_platforms as context
+                        for app_platform in app_info["platforms"]:
+                            if app_platform not in detected_platforms:
+                                detected_platforms.append(app_platform)
+                        break
+            if application_match:
+                break
 
         # Default to frontend+backend if nothing detected
         if not detected_platforms:
@@ -94,14 +127,25 @@ class PlatformDetector:
             reasoning = "No clear platform indicators detected, defaulting to web application"
         else:
             confidence = min(0.8, max(platform_scores.values()))
-            reasoning = f"Detected platforms based on indicators: {detected_platforms}"
+            if application_match:
+                reasoning = f"Detected '{application_match}' via abbreviation, using platforms: {detected_platforms}"
+            else:
+                reasoning = f"Detected platforms based on indicators: {detected_platforms}"
 
-        return {
+        result = {
             "detected_platforms": detected_platforms,
             "confidence": confidence,
             "reasoning": reasoning,
             "platform_scores": platform_scores
         }
+
+        # Add application match if found via abbreviation
+        if application_match:
+            result["application_match"] = application_match
+            result["source"] = "config_abbreviation"
+            result["all_documented_platforms"] = self.context.get("applications", {}).get(application_match, {}).get("all_platforms", detected_platforms)
+
+        return result
 
     def _count_indicators(self, text: str, indicator_type: str) -> float:
         """Count how many platform indicators appear in text"""

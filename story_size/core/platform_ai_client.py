@@ -50,6 +50,21 @@ class PlatformAwareAIClient:
         # Get application context
         app_context = self.platform_detector.detect_platform_from_context(doc_summary)
 
+        # Build application context instruction (informational, not forcing)
+        app_instruction = ""
+        if app_context.get("application_match"):
+            app_name = app_context.get("application_match")
+            all_platforms = app_context.get("all_documented_platforms", app_context.get("detected_platforms", []))
+            app_instruction = f"""
+
+APPLICATION CONTEXT:
+Detected application: {app_name}
+All available platforms for this application: {', '.join(all_platforms)}
+
+NOTE: Use this as context to understand the application's architecture. Determine which platforms
+are ACTUALLY NEEDED for THIS SPECIFIC WORK ITEM based on the requirements described.
+"""
+
         system_prompt = """
 Analyze this work item and available codebase structure.
 
@@ -108,7 +123,7 @@ Work Item Documents:
 
         user_prompt = system_prompt.format(
             platform_structure=platform_structure,
-            app_context=f"APPLICATION CONTEXT:\n{app_context['reasoning']}\nLikely platforms: {', '.join(app_context['detected_platforms'])}",
+            app_context=f"APPLICATION CONTEXT:\n{app_context['reasoning']}\nLikely platforms: {', '.join(app_context['detected_platforms'])}{app_instruction}",
             doc_summary=doc_summary
         )
 
@@ -488,6 +503,9 @@ DEVOPS ANALYSIS FACTORS:
 
             # Clean up the JSON response
             content_str = content_str.strip()
+
+            # Fix common LLM JSON issues: \' is not valid JSON (single quotes don't need escaping)
+            content_str = content_str.replace("\\'", "'")
 
             # Handle JSON wrapped in code blocks
             if "```json" in content_str:
