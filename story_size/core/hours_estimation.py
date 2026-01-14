@@ -46,7 +46,7 @@ class NonLinearEstimator:
 
     def exponential_model(self, story_points: int, k: float = None) -> EstimationModel:
         """
-        Exponential growth model: Hours = BaseHours × e^(k × StoryPoints)
+        Exponential growth model: Hours = BaseHours x e^(k x StoryPoints)
 
         Most recommended by research for reflecting compounding complexity
 
@@ -62,7 +62,7 @@ class NonLinearEstimator:
 
         return EstimationModel(
             name="Exponential Model",
-            description=f"Hours = {self.base_hours_per_point} × e^{k}^(SP-1) where k={k}",
+            description=f"Hours = {self.base_hours_per_point} x e^{k}^(SP-1) where k={k}",
             min_hours=round(min_hours),
             max_hours=round(max_hours),
             expected_hours=round(expected_hours)
@@ -70,7 +70,7 @@ class NonLinearEstimator:
 
     def power_model(self, story_points: int, a: float = None, b: float = None) -> EstimationModel:
         """
-        Power function model: Hours = a × StoryPoints^b
+        Power function model: Hours = a x StoryPoints^b
 
         Good for medium to large stories
 
@@ -89,7 +89,7 @@ class NonLinearEstimator:
 
         return EstimationModel(
             name="Power Model",
-            description=f"Hours = {a} × SP^{b}",
+            description=f"Hours = {a} x SP^{b}",
             min_hours=round(min_hours),
             max_hours=round(max_hours),
             expected_hours=round(expected_hours)
@@ -149,7 +149,7 @@ class NonLinearEstimator:
 
         return EstimationModel(
             name="Linear Model (Baseline)",
-            description=f"Hours = SP × {self.base_hours_per_point}",
+            description=f"Hours = SP x {self.base_hours_per_point}",
             min_hours=round(min_hours),
             max_hours=round(max_hours),
             expected_hours=round(expected_hours)

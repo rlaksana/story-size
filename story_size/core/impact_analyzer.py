@@ -166,7 +166,7 @@ class CodebaseSearcher:
                     continue
 
                 # Filename match
-                if self._matches_filename(file_path, entity_variants)):
+                if self._matches_filename(file_path, entity_variants):
                     matches.append(EntityMatch(
                         entity=entity,
                         file_path=file_path,

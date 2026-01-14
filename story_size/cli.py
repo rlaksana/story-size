@@ -1,9 +1,17 @@
 import typer
 import asyncio
 import os
+import sys
 from pathlib import Path
 from typing import List, Optional
 from dotenv import load_dotenv
+
+# Configure UTF-8 encoding for Windows terminal compatibility
+if sys.platform == 'win32':
+    # Set stdout and stderr to UTF-8 mode
+    import io
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 
 # Load environment variables from .env file
 load_dotenv()
@@ -365,20 +373,62 @@ def _save_to_markdown(estimation, output_path: Path, output_format: str, console
         lines.append(f"| **Required Platforms** | {', '.join(estimation.platform_detection.estimated_platforms)} |")
         lines.append("")
 
-        # Platform breakdown table
+        # Platform breakdown table with detailed calculation
         lines.append("## Platform Breakdown")
         lines.append("")
-        lines.append("| Platform | Story Points | Estimated Hours |")
-        lines.append("|----------|-------------|-----------------|")
 
-        for platform, sp in estimation.platform_story_points.items():
-            platform_analysis = estimation.platform_analyses.get(platform)
-            if platform_analysis and platform_analysis.estimated_hours:
-                hours = f"{platform_analysis.estimated_hours['min']}-{platform_analysis.estimated_hours['max']}"
-            else:
-                hours = "N/A"
-            lines.append(f"| {platform.upper()} | {sp} | {hours} |")
-        lines.append("")
+        if estimation.calculation_breakdown and "platform_breakdown" in estimation.calculation_breakdown:
+            # Detailed breakdown with raw scores
+            lines.append("| Platform | Raw Score | Impact Tax | Adjusted | Story Points | Est. Hours |")
+            lines.append("|----------|-----------|------------|----------|--------------|------------|")
+
+            breakdown = estimation.calculation_breakdown["platform_breakdown"]
+            for platform, sp in estimation.platform_story_points.items():
+                if platform in breakdown:
+                    pb = breakdown[platform]
+                    raw = pb.get("raw_score", 0)
+                    tax = pb.get("impact_tax", 1.0)
+                    adjusted = pb.get("adjusted_score", 0)
+
+                    platform_analysis = estimation.platform_analyses.get(platform)
+                    if platform_analysis and platform_analysis.estimated_hours:
+                        hours = f"{platform_analysis.estimated_hours['min']}-{platform_analysis.estimated_hours['max']}"
+                    else:
+                        hours = "N/A"
+
+                    lines.append(f"| {platform.upper()} | {raw:.1f} | {tax:.1f}x | {adjusted:.1f} | {sp} | {hours} |")
+            lines.append("")
+
+            # Overall calculation details
+            lines.append("### Overall Calculation")
+            lines.append("")
+            base_sum = estimation.calculation_breakdown.get("base_sum", 0)
+            integration_mult = estimation.calculation_breakdown.get("integration_multiplier", 1.0)
+            risk_mult = estimation.calculation_breakdown.get("risk_multiplier", 1.0)
+            final_score = estimation.calculation_breakdown.get("final_score", 0)
+            overall_sp = estimation.calculation_breakdown.get("overall_story_points", estimation.overall_story_points)
+
+            lines.append(f"```")
+            lines.append(f"Base Sum (RAW):     {base_sum:.2f}")
+            lines.append(f"x Integration:      {integration_mult:.2f} ({estimation.calculation_breakdown.get('platform_count', 0)} platforms)")
+            lines.append(f"x Risk:             {risk_mult:.2f}")
+            lines.append(f"= Final Score:      {final_score:.2f}")
+            lines.append(f"-> Story Points:    {overall_sp} SP (Fibonacci)")
+            lines.append(f"```")
+            lines.append("")
+        else:
+            # Fallback to simple table if no breakdown available
+            lines.append("| Platform | Story Points | Estimated Hours |")
+            lines.append("|----------|-------------|-----------------|")
+
+            for platform, sp in estimation.platform_story_points.items():
+                platform_analysis = estimation.platform_analyses.get(platform)
+                if platform_analysis and platform_analysis.estimated_hours:
+                    hours = f"{platform_analysis.estimated_hours['min']}-{platform_analysis.estimated_hours['max']}"
+                else:
+                    hours = "N/A"
+                lines.append(f"| {platform.upper()} | {sp} | {hours} |")
+            lines.append("")
 
         # Detailed analysis
         lines.append("## Detailed Analysis")
