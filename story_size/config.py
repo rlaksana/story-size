@@ -1,12 +1,13 @@
 import yaml
+import os
 from pathlib import Path
 from typing import Dict, Any
 
 DEFAULT_CONFIG = {
     "llm": {
-        "endpoint": "https://api.z.ai/api/anthropic/v1/messages",
+        "endpoint": "https://api-eng.andalhr.com/v1/chat/completions",
         "api_key_env": "ZAI_API_KEY",
-        "model": "glm-4.6",
+        "model": "common",
     },
 
     # Traditional factor weights (for backward compatibility)
@@ -218,7 +219,7 @@ def save_sample_config(output_path: Path):
             "# LLM API configuration": None,
             "endpoint": "https://api.z.ai/api/anthropic/v1/messages",
             "api_key_env": "ZAI_API_KEY",
-            "model": "glm-4.6",
+            "model": "minimax",
           },
 
         "weights": {

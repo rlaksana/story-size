@@ -1,6 +1,7 @@
 import os
 import json
 import requests
+import re
 import warnings  # NEW: Suppress warnings from other libraries
 from typing import Dict, Optional, List
 from pathlib import Path
@@ -39,7 +40,6 @@ class PlatformAwareAIClient:
         self.headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self.api_key}",
-            "anthropic-version": "2023-06-01",
         }
 
     async def detect_platforms(self, doc_summary: str, code_analysis: EnhancedCodeAnalysis, force_platforms: Optional[str] = None) -> PlatformDetection:
@@ -472,8 +472,7 @@ DEVOPS ANALYSIS FACTORS:
         """Call the LLM API with error handling"""
 
         data = {
-            "model": self.llm_config.get("model", "glm-4.6"),
-            "system": "You are an expert software architect analyzing technical requirements. Return ONLY valid JSON without any additional text or formatting.",
+            "model": self.llm_config.get("model", "minimax"),
             "messages": [
                 {
                     "role": "user",
@@ -484,64 +483,109 @@ DEVOPS ANALYSIS FACTORS:
             "temperature": 0.2,
         }
 
+        # Handle system prompt for OpenAI-style vs Anthropic-style
+        # Most OpenAI-compatible APIs support system role
+        system_content = "You are an expert software architect analyzing technical requirements. Return ONLY valid JSON without any additional text or formatting."
+        data["system"] = system_content
+        data["messages"].insert(0, {
+            "role": "system",
+            "content": system_content
+        })
+
         try:
             response = requests.post(
                 self.llm_config.get("endpoint"),
                 headers=self.headers,
-                json=data
+                json=data,
+                timeout=60 # Add timeout
             )
             response.raise_for_status()
             result = response.json()
 
             # Handle different response structures
-            if 'content' in result and len(result['content']) > 0:
-                content_str = result['content'][0]['text']
+            content_str = ""
+            if 'content' in result:
+                if isinstance(result['content'], list) and len(result['content']) > 0:
+                    content_str = result['content'][0].get('text', '')
+                elif isinstance(result['content'], str):
+                    content_str = result['content']
             elif 'choices' in result and len(result['choices']) > 0:
                 content_str = result['choices'][0]['message']['content']
-            else:
-                raise RuntimeError(f"Unexpected response structure: {result}")
 
-            # Clean up the JSON response
-            content_str = content_str.strip()
+            if not content_str:
+                raise RuntimeError(f"Could not extract content from response: {result}")
 
-            # Fix common LLM JSON issues: \' is not valid JSON (single quotes don't need escaping)
-            content_str = content_str.replace("\\'", "'")
-
-            # Handle JSON wrapped in code blocks
-            if "```json" in content_str:
-                content_str = content_str.split("```json")[1].split("```")[0]
-            elif "```" in content_str:
-                content_str = content_str.split("```")[1].split("```")[0]
-
-            # Remove any leading/trailing whitespace and newlines
-            content_str = content_str.strip()
-
-            # Find JSON object boundaries
-            if content_str.startswith('{') and content_str.endswith('}'):
-                return json.loads(content_str)
-            else:
-                # Try to extract JSON from the response
-                start_idx = content_str.find('{')
-                end_idx = content_str.rfind('}') + 1
-                if start_idx != -1 and end_idx != -1:
-                    json_str = content_str[start_idx:end_idx]
-                    return json.loads(json_str)
-                else:
-                    # Debug: save response to file for inspection
-                    with open('debug_response.txt', 'w', encoding='utf-8') as f:
-                        f.write(f"Full response:\n{result}\n\nExtracted content:\n{content_str}")
-                    raise RuntimeError(f"Could not find valid JSON in response. Debug info saved to debug_response.txt")
+            return self._extract_json_from_text(content_str)
 
         except requests.exceptions.RequestException as e:
             raise RuntimeError(f"Error calling LLM API: {e}")
-        except (json.JSONDecodeError, KeyError) as e:
+        except Exception as e:
             # Debug: save response to file for inspection
             try:
                 with open('debug_response.txt', 'w', encoding='utf-8') as f:
-                    f.write(f"Full response:\n{result}\n\nExtracted content:\n{content_str}\n\nError: {e}")
+                    f.write(f"Response:\n{result if 'result' in locals() else 'No result'}\n\nError: {e}")
             except:
                 pass
-            raise RuntimeError(f"Error parsing LLM response: {e}\nResponse content saved to debug_response.txt")
+            raise RuntimeError(f"Error processing LLM response: {e}")
+
+    def _extract_json_from_text(self, text: str) -> dict:
+        """Robustly extract JSON from LLM response text."""
+        # 1. Remove reasoning blocks
+        text = re.sub(r'<thinking>.*?</thinking>', '', text, flags=re.DOTALL)
+
+        # 2. Try to find json code blocks
+        json_match = re.search(r'```json\s*(.*?)\s*```', text, re.DOTALL)
+        if json_match:
+            content = json_match.group(1)
+        else:
+            # Try generic code blocks
+            code_match = re.search(r'```\s*(.*?)\s*```', text, re.DOTALL)
+            if code_match:
+                content = code_match.group(1)
+            else:
+                content = text
+
+        content = content.strip()
+
+        # 3. Final fallback: find first { and last }
+        if not (content.startswith('{') and content.endswith('}')):
+            start_idx = content.find('{')
+            end_idx = content.rfind('}') + 1
+            if start_idx != -1 and end_idx > start_idx:
+                content = content[start_idx:end_idx]
+
+        # 4. Clean common issues
+        # Fix escaped single quotes (not allowed in JSON)
+        content = content.replace("\\'", "'")
+
+        # Fix common LLM error: missing colon after key before [ or {
+        content = re.sub(r'("[\w_]+")\s+([\[\{])', r'\1: \2', content)
+
+        # Fix missing closing quote and colon before array/object
+        content = re.sub(r'("[\w_]+)\s*([\[\{])', r'\1": \2', content)
+
+        # Fix trailing commas
+        content = re.sub(r',\s*([\]\}])', r'\1', content)
+
+        try:
+            return json.loads(content)
+        except json.JSONDecodeError as e:
+            # Try to fix unescaped newlines in strings
+            try:
+                # This is a bit risky but can help with large text blocks
+                # Replace newlines within quotes
+                def fix_newlines(match):
+                    return match.group(0).replace('\n', '\\n').replace('\r', '\\r')
+
+                fixed_content = re.sub(r'"[^"]*"', fix_newlines, content, flags=re.DOTALL)
+                return json.loads(fixed_content)
+            except:
+                pass
+
+            # Debug log the failed string
+            with open('debug_json_failure.txt', 'w', encoding='utf-8') as f:
+                f.write(content)
+            raise RuntimeError(f"Failed to parse JSON: {e}. Content saved to debug_json_failure.txt")
 
     async def _calculate_story_points(self, platform_analyses: Dict[str, PlatformAnalysis],
                                    platform_detection: PlatformDetection,
