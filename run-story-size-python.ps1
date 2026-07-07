@@ -9,8 +9,8 @@
 #>
 
 $ScriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
-$DocsDir = "D:\Atika\New Volume\New AK\Project\AK.Spec\Performance\specs"
-$OutputDir = "D:\Atika\New Volume\New AK\Project\AK.Spec\Performance\story-size"
+$DocsDir = "D:\Data\Management\Backlog\MVP 6.1 - Andal Payroll\(AC) Enhancement - Kemunculan Red Mark jika terdapat 1 atau lebih transaksi pada menu Status dan Approval"
+$OutputDir = "D:\Data\Management\Backlog\MVP 6.1 - Andal Payroll\(AC) Enhancement - Kemunculan Red Mark jika terdapat 1 atau lebih transaksi pada menu Status dan Approval"
 
 # Create output directory
 if (-not (Test-Path $OutputDir)) {
