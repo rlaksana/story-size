@@ -9,6 +9,21 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+# Canonical complexity enum used consistently across multiplier + fallback-SP dicts.
+# Centralized here so any new complexity value gets validated in one place.
+_COMPLEXITY_MULTIPLIER = {
+    "simple": 1.0,
+    "moderate": 1.2,
+    "complex": 1.5,
+    "very_complex": 2.0,
+}
+_COMPLEXITY_FALLBACK_SP = {
+    "simple": 1,
+    "moderate": 3,
+    "complex": 5,
+    "very_complex": 8,
+}
+
 # Suppress warnings from imported packages (e.g., PyTorch, TensorFlow, etc.)
 warnings.filterwarnings("ignore", category=UserWarning)
 
@@ -205,17 +220,20 @@ Work Item Documents:
                              doc_summary: str,
                              code_analysis: EnhancedCodeAnalysis,
                              platform_detection: PlatformDetection,
-                             image_analysis: dict = None) -> PlatformAnalysis:
+                             image_analysis: dict = None,
+                             docs_only: bool = False) -> PlatformAnalysis:
         """Stage 2: Detailed platform-specific analysis"""
 
         # Get platform-specific code summary
         platform_summary = code_analysis.platform_summaries.get(platform)
 
         if not platform_summary or platform_summary.files_estimated == 0:
-            # In docs-only mode, still do AI analysis based on document content
-            # Only return empty if we truly have no platform info at all
-            if not platform_detection.platform_requirements.get(platform) or \
-               not platform_detection.platform_requirements.get(platform).required:
+            # Short-circuit when no codebase context is available FOR THIS PLATFORM,
+            # UNLESS we are in docs-only mode (where the LLM should analyze from the
+            # document content alone) AND the LLM declared this platform as required.
+            req = platform_detection.platform_requirements.get(platform)
+            platform_required = bool(req and req.required)
+            if not (docs_only and platform_required):
                 return PlatformAnalysis(
                     platform=platform,
                     factors={},
@@ -225,7 +243,6 @@ Work Item Documents:
                     key_components=[],
                     key_challenges=[]
                 )
-            # If platform is required, continue to AI analysis even without code
 
         platform_prompt = self._get_platform_specific_prompt(platform)
         platform_context = self._generate_platform_context(platform_summary, platform) if platform_summary else "No codebase available - analysis based on document content only."
@@ -353,7 +370,8 @@ Response format (JSON):
             for platform in platform_detection.estimated_platforms:
                 print(f"Stage 2: Analyzing {platform}...")
                 platform_analyses[platform] = await self.analyze_platform(
-                    platform, doc_summary, code_analysis, platform_detection, image_analysis
+                    platform, doc_summary, code_analysis, platform_detection,
+                    image_analysis, docs_only=docs_only
                 )
                 print(f"{platform} analysis complete")
 
@@ -678,13 +696,15 @@ DEVOPS ANALYSIS FACTORS:
                     print(f"  {platform.upper()}: {min_h}-{max_h}h -> {sp} SP")
 
             # Calculate overall based on complexity level
+            # Validate complexity up-front so a malformed LLM value doesn't silently
+            # fall through to a default branch and produce inconsistent multipliers.
             complexity = platform_detection.complexity_level
-            complexity_multiplier = {
-                "simple": 1.0,
-                "moderate": 1.2,
-                "complex": 1.5,
-                "very_complex": 2.0
-            }.get(complexity, 1.0)
+            if complexity not in _COMPLEXITY_MULTIPLIER:
+                raise ValueError(
+                    f"Unknown complexity_level {complexity!r}; "
+                    f"expected one of {sorted(_COMPLEXITY_MULTIPLIER)}"
+                )
+            complexity_multiplier = _COMPLEXITY_MULTIPLIER[complexity]
 
             # Use average hours across platforms, adjusted by complexity
             platform_count = len(platform_analyses)
@@ -693,13 +713,8 @@ DEVOPS ANALYSIS FACTORS:
                 adjusted_hours = avg_total_hours * complexity_multiplier
                 overall_sp = self._map_hours_to_story_points(adjusted_hours)
             else:
-                # Fallback: use complexity level
-                overall_sp = {
-                    "simple": 1,
-                    "moderate": 3,
-                    "complex": 5,
-                    "very_complex": 8
-                }.get(complexity, 3)
+                # Fallback: use complexity level (same canonical enum as multiplier)
+                overall_sp = _COMPLEXITY_FALLBACK_SP[complexity]
 
             print(f"  Overall: {overall_sp} SP (based on document complexity)")
 

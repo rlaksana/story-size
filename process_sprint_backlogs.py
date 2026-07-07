@@ -128,8 +128,13 @@ def run_story_size(docs_dir: str, output_file: str) -> bool:
 
 def main():
     """Main function to process all backlog folders."""
-    # Base path to Sprint5.9 directory
-    base_path = r"D:\Data\Management\Backlog\MVP 6.8 - Andal Payroll"
+    # Base path configurable via environment variable; fall back to local default.
+    # Other team members (and CI runners on macOS/Linux) can override BACKLOG_BASE_PATH
+    # without editing this file.
+    base_path = os.environ.get(
+        "BACKLOG_BASE_PATH",
+        r"D:\Data\Management\Backlog\MVP 6.8 - Andal Payroll",
+    )
 
     print("=" * 60)
     print("Story Size Estimation for All Backlog Folders")
