@@ -1,10 +1,13 @@
 import os
 import json
+import logging
 import requests
 import re
 import warnings  # NEW: Suppress warnings from other libraries
 from typing import Dict, Optional, List
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 # Suppress warnings from imported packages (e.g., PyTorch, TensorFlow, etc.)
 warnings.filterwarnings("ignore", category=UserWarning)
@@ -139,23 +142,19 @@ Work Item Documents:
 
         # Check if LLM returned the correct structure
         if "platform_requirements" not in response_data:
-            # LLM returned wrong structure (likely factors-based instead of platform-based)
-            # Fallback to reasonable defaults for a bug fix
-            print("Warning: LLM returned unexpected format. Using fallback platform detection.")
-            platform_requirements = {
-                "frontend": PlatformRequirement(required=True, scope="medium", technologies=["HTML", "JavaScript"]),
-                "backend": PlatformRequirement(required=True, scope="medium", technologies=["Python/Django", "REST API"]),
-                "mobile": PlatformRequirement(required=False, scope="none", technologies=[]),
-                "devops": PlatformRequirement(required=False, scope="none", technologies=[])
-            }
-            # Create platform detection result with defaults
+            # LLM returned wrong structure (likely factors-based instead of platform-based).
+            # Return a NEUTRAL fallback: don't fabricate work-item assumptions or invalid
+            # complexity values (e.g. "medium" is not in the canonical simple|moderate|
+            # complex|very_complex enum). Callers should treat confidence=0.0 and empty
+            # platform_requirements as "no detection available".
+            logger.warning("LLM returned unexpected format (no 'platform_requirements' key). Returning neutral fallback PlatformDetection.")
             platform_detection = PlatformDetection(
-                work_item_type="bug_fix",
-                complexity_level="medium",
-                estimated_platforms=["frontend", "backend"],
-                reasoning="Fallback: Bug fix for Export Roster functionality - requires frontend UI and backend API changes",
-                confidence=0.7,
-                platform_requirements=platform_requirements,
+                work_item_type="unknown",
+                complexity_level="moderate",
+                estimated_platforms=[],
+                reasoning="Fallback: LLM response did not contain 'platform_requirements'; no platform inference made.",
+                confidence=0.0,
+                platform_requirements={},
                 application_context=None
             )
             return platform_detection
@@ -595,15 +594,11 @@ DEVOPS ANALYSIS FACTORS:
                 content = content[start_idx:end_idx]
 
         # 4. Clean common issues
-        # Fix escaped single quotes (not allowed in JSON)
+        # Note: Only `\'` is genuinely illegal in JSON. Other backslash sequences
+        # (e.g. Windows paths "C:\Users", regex literals "\d+", user-facing strings
+        # containing backslashes) must NOT be rewritten before json.loads, otherwise
+        # legitimate escape sequences inside string values get corrupted.
         content = content.replace("\\'", "'")
-
-        # Fix literal backslash escape sequences (e.g., \n -> actual newline)
-        content = content.replace(chr(92) + 'n', '\n')  # \n -> actual newline
-        content = content.replace(chr(92) + '"', '"')   # \" -> "
-        content = content.replace(chr(92) + "'", "'")   # \' -> '
-        content = content.replace(chr(92) + '{', '{')   # \{ -> {
-        content = content.replace(chr(92) + '}', '}')   # \} -> }
 
         # Fix common LLM error: missing colon after key before [ or {
         content = re.sub(r'("[\w_]+")\s+([\[\{])', r'\1: \2', content)
@@ -961,27 +956,23 @@ DEVOPS ANALYSIS FACTORS:
         # Typical: 1 SP = 4-8 hours, use 6 as base
         hours_per_sp = 6.0
 
+        # Fibonacci series: 1, 2, 3, 5, 8, 13, 21, 34, 55
+        # Boundaries chosen so each Fibonacci value is reachable from a unique range.
         if hours <= 6:
             return 1
         elif hours <= 12:
             return 2
         elif hours <= 18:
             return 3
-        elif hours <= 24:
+        elif hours <= 32:
             return 5
-        elif hours <= 36:
-            return 5
-        elif hours <= 48:
+        elif hours <= 56:
             return 8
-        elif hours <= 72:
-            return 13
-        elif hours <= 120:
+        elif hours <= 96:
             return 13
         elif hours <= 168:
             return 21
-        elif hours <= 240:
-            return 21
-        elif hours <= 360:
+        elif hours <= 320:
             return 34
         else:
             return 55  # Cap at 55 for very large tasks
