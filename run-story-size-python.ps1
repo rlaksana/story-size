@@ -9,8 +9,15 @@
 #>
 
 $ScriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
-$DocsDir = "D:\Atika\New Volume\New AK\Project\AK.Spec\Performance\specs"
-$OutputDir = "D:\Atika\New Volume\New AK\Project\AK.Spec\Performance\story-size"
+# Paths configurable via environment variables; fall back to local defaults.
+$DocsDir = $env:STORY_DOCS_DIR
+if (-not $DocsDir) {
+    $DocsDir = 'D:\Data\Management\Backlog\MVP 6.1 - Andal Payroll\(AC) Enhancement - Kemunculan Red Mark jika terdapat 1 atau lebih transaksi pada menu Status dan Approval'
+}
+$OutputDir = $env:STORY_OUTPUT_DIR
+if (-not $OutputDir) {
+    $OutputDir = Join-Path $DocsDir 'story-size'
+}
 
 # Create output directory
 if (-not (Test-Path $OutputDir)) {

@@ -34,7 +34,8 @@ def read_documents_with_images(docs_dir: Path, max_content_length: int = 500000)
     image_analysis = []
     current_length = 0
 
-    processor = ImageProcessor()
+    # Lazy import ImageProcessor - only load when actually needed
+    processor = None
 
     logger.info(f"Starting enhanced document processing for: {docs_dir}")
 
@@ -85,11 +86,17 @@ def read_documents_with_images(docs_dir: Path, max_content_length: int = 500000)
             # Extract text
             file_content = read_pdf_limited(file_path, max_chars=100000)
 
-            # Extract and analyze images
+            # Extract and analyze images (lazy load ImageProcessor)
             logger.info(f"Extracting images from PDF: {file_path.name}")
+            if processor is None:
+                from .image_processing import ImageProcessor
+                processor = ImageProcessor()
             images = processor.extract_pdf_images(file_path)
 
             for img_info in images:
+                if processor is None:
+                    from .image_processing import ImageProcessor
+                    processor = ImageProcessor()
                 analysis = processor.analyze_image_for_story_estimation(img_info['image'])
                 image_data = {
                     'file': str(file_path),
@@ -136,11 +143,17 @@ def read_documents_with_images(docs_dir: Path, max_content_length: int = 500000)
             if len(file_content) > 100000:
                 file_content = file_content[:100000] + "\n... (truncated)"
 
-            # Extract and analyze images
+            # Extract and analyze images (lazy load ImageProcessor)
             logger.info(f"Extracting images from DOCX: {file_path.name}")
+            if processor is None:
+                from .image_processing import ImageProcessor
+                processor = ImageProcessor()
             images = processor.extract_docx_images(file_path)
 
             for img_info in images:
+                if processor is None:
+                    from .image_processing import ImageProcessor
+                    processor = ImageProcessor()
                 analysis = processor.analyze_image_for_story_estimation(img_info['image'])
                 image_data = {
                     'file': str(file_path),

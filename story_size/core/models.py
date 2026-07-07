@@ -37,7 +37,7 @@ class Estimation(BaseModel):
 # Enhanced Platform-Aware Models
 class PlatformRequirement(BaseModel):
     required: bool
-    scope: str = Field(..., description="high, medium, low")
+    scope: Optional[str] = Field(default="medium", description="high, medium, low")
     technologies: List[str] = []
 
 class PlatformDetection(BaseModel):

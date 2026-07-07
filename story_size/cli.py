@@ -41,6 +41,7 @@ def main(
     be_dir: Optional[Path] = typer.Option(None, "--be-dir", help="Backend code directory (API, services, business logic).", envvar="DEFAULT_BE_DIR"),
     mobile_dir: Optional[Path] = typer.Option(None, "--mobile-dir", help="Mobile code directory (Flutter, React Native, etc.).", envvar="DEFAULT_MOBILE_DIR"),
     devops_dir: Optional[Path] = typer.Option(None, "--devops-dir", help="DevOps/Infrastructure directory (Docker, K8s, CI/CD).", envvar="DEFAULT_DEVOPS_DIR"),
+    docs_only: bool = typer.Option(False, "--docs-only", help="Analyze document only, without codebase analysis."),
 
   
     # Analysis Options
@@ -115,14 +116,16 @@ def main(
     parsed_languages = languages.split(',') if languages else None
 
     # Get platform directories from environment variables if not provided
-    if not fe_dir and os.getenv("DEFAULT_FE_DIR"):
-        fe_dir = Path(os.getenv("DEFAULT_FE_DIR"))
-    if not be_dir and os.getenv("DEFAULT_BE_DIR"):
-        be_dir = Path(os.getenv("DEFAULT_BE_DIR"))
-    if not mobile_dir and os.getenv("DEFAULT_MOBILE_DIR"):
-        mobile_dir = Path(os.getenv("DEFAULT_MOBILE_DIR"))
-    if not devops_dir and os.getenv("DEFAULT_DEVOPS_DIR"):
-        devops_dir = Path(os.getenv("DEFAULT_DEVOPS_DIR"))
+    # Skip loading from .env if --docs-only is set
+    if not docs_only:
+        if not fe_dir and os.getenv("DEFAULT_FE_DIR"):
+            fe_dir = Path(os.getenv("DEFAULT_FE_DIR"))
+        if not be_dir and os.getenv("DEFAULT_BE_DIR"):
+            be_dir = Path(os.getenv("DEFAULT_BE_DIR"))
+        if not mobile_dir and os.getenv("DEFAULT_MOBILE_DIR"):
+            mobile_dir = Path(os.getenv("DEFAULT_MOBILE_DIR"))
+        if not devops_dir and os.getenv("DEFAULT_DEVOPS_DIR"):
+            devops_dir = Path(os.getenv("DEFAULT_DEVOPS_DIR"))
 
     # Get output_dir from environment variable if not provided
     if not output_dir and os.getenv("DEFAULT_OUTPUT_DIR"):
@@ -187,7 +190,7 @@ def main(
     # Platform-aware analysis
     print("Using platform-aware analysis...")
     estimation, show_all_estimates = asyncio.run(_run_platform_analysis(
-        doc_text, platform_dirs, parsed_paths, parsed_languages, config_data, output, force_platforms, doc_result, show_all_estimates
+        doc_text, platform_dirs, parsed_paths, parsed_languages, config_data, output, force_platforms, doc_result, show_all_estimates, docs_only
     ))
 
     # Handle auto-save to docs directory
@@ -213,19 +216,31 @@ def main(
 async def _run_platform_analysis(doc_text: str, platform_dirs, paths: Optional[List[str]],
                                 languages: Optional[List[str]], config_data: dict, output_format: str,
                                 force_platforms: Optional[str], image_analysis: dict = None,
-                                show_all_estimates: bool = False):
+                                show_all_estimates: bool = False, docs_only: bool = False):
     """Run platform-aware analysis"""
 
-    # Analyze platform directories
-    paths_str = ','.join(paths) if paths else None
-    languages_str = ','.join(languages) if languages else None
+    # Analyze platform directories (skip if docs-only mode)
+    if docs_only:
+        print("\n[INFO] Running in docs-only mode - skipping codebase analysis")
+        # Create empty code analysis
+        from story_size.core.models import EnhancedCodeAnalysis
+        code_analysis = EnhancedCodeAnalysis(
+            platform_summaries={},
+            total_files=0,
+            total_languages=[],
+            cross_platform_dependencies=[]
+        )
+        print("  Document analysis only - story points based on document complexity")
+    else:
+        paths_str = ','.join(paths) if paths else None
+        languages_str = ','.join(languages) if languages else None
 
-    code_analysis = analyze_all_platforms(platform_dirs, paths_str, languages_str)
+        code_analysis = analyze_all_platforms(platform_dirs, paths_str, languages_str)
 
-    print(f"\nPlatform Analysis:")
-    for platform, summary in code_analysis.platform_summaries.items():
-        if summary.files_estimated > 0:
-            print(f"  {platform.upper()}: {summary.files_estimated} files, {', '.join(summary.languages_detected)}")
+        print(f"\nPlatform Analysis:")
+        for platform, summary in code_analysis.platform_summaries.items():
+            if summary.files_estimated > 0:
+                print(f"  {platform.upper()}: {summary.files_estimated} files, {', '.join(summary.languages_detected)}")
 
     # Extract code_dir for context detection (use first available platform directory)
     code_dir = None
@@ -247,7 +262,8 @@ async def _run_platform_analysis(doc_text: str, platform_dirs, paths: Optional[L
         code_analysis,
         force_platforms,
         image_analysis,
-        code_dir  # Pass code_dir for auto context detection
+        code_dir,  # Pass code_dir for auto context detection
+        docs_only  # Pass docs_only flag
     )
 
     return (analysis, show_all_estimates)

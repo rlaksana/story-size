@@ -1,10 +1,28 @@
 import os
 import json
+import logging
 import requests
 import re
 import warnings  # NEW: Suppress warnings from other libraries
 from typing import Dict, Optional, List
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
+
+# Canonical complexity enum used consistently across multiplier + fallback-SP dicts.
+# Centralized here so any new complexity value gets validated in one place.
+_COMPLEXITY_MULTIPLIER = {
+    "simple": 1.0,
+    "moderate": 1.2,
+    "complex": 1.5,
+    "very_complex": 2.0,
+}
+_COMPLEXITY_FALLBACK_SP = {
+    "simple": 1,
+    "moderate": 3,
+    "complex": 5,
+    "very_complex": 8,
+}
 
 # Suppress warnings from imported packages (e.g., PyTorch, TensorFlow, etc.)
 warnings.filterwarnings("ignore", category=UserWarning)
@@ -137,6 +155,25 @@ Work Item Documents:
 
         response_data = await self._call_llm(user_prompt)
 
+        # Check if LLM returned the correct structure
+        if "platform_requirements" not in response_data:
+            # LLM returned wrong structure (likely factors-based instead of platform-based).
+            # Return a NEUTRAL fallback: don't fabricate work-item assumptions or invalid
+            # complexity values (e.g. "medium" is not in the canonical simple|moderate|
+            # complex|very_complex enum). Callers should treat confidence=0.0 and empty
+            # platform_requirements as "no detection available".
+            logger.warning("LLM returned unexpected format (no 'platform_requirements' key). Returning neutral fallback PlatformDetection.")
+            platform_detection = PlatformDetection(
+                work_item_type="unknown",
+                complexity_level="moderate",
+                estimated_platforms=[],
+                reasoning="Fallback: LLM response did not contain 'platform_requirements'; no platform inference made.",
+                confidence=0.0,
+                platform_requirements={},
+                application_context=None
+            )
+            return platform_detection
+
         # Parse platform requirements
         platform_requirements = {}
         for platform, req_data in response_data["platform_requirements"].items():
@@ -183,26 +220,32 @@ Work Item Documents:
                              doc_summary: str,
                              code_analysis: EnhancedCodeAnalysis,
                              platform_detection: PlatformDetection,
-                             image_analysis: dict = None) -> PlatformAnalysis:
+                             image_analysis: dict = None,
+                             docs_only: bool = False) -> PlatformAnalysis:
         """Stage 2: Detailed platform-specific analysis"""
 
         # Get platform-specific code summary
         platform_summary = code_analysis.platform_summaries.get(platform)
 
         if not platform_summary or platform_summary.files_estimated == 0:
-            # Return empty analysis for platforms without code
-            return PlatformAnalysis(
-                platform=platform,
-                factors={},
-                explanation=f"No {platform} code detected in the repository.",
-                recommended_approach="",
-                estimated_hours={"min": 0, "max": 0},
-                key_components=[],
-                key_challenges=[]
-            )
+            # Short-circuit when no codebase context is available FOR THIS PLATFORM,
+            # UNLESS we are in docs-only mode (where the LLM should analyze from the
+            # document content alone) AND the LLM declared this platform as required.
+            req = platform_detection.platform_requirements.get(platform)
+            platform_required = bool(req and req.required)
+            if not (docs_only and platform_required):
+                return PlatformAnalysis(
+                    platform=platform,
+                    factors={},
+                    explanation=f"No {platform} code detected in the repository.",
+                    recommended_approach="",
+                    estimated_hours={"min": 0, "max": 0},
+                    key_components=[],
+                    key_challenges=[]
+                )
 
         platform_prompt = self._get_platform_specific_prompt(platform)
-        platform_context = self._generate_platform_context(platform_summary, platform)
+        platform_context = self._generate_platform_context(platform_summary, platform) if platform_summary else "No codebase available - analysis based on document content only."
 
         # Add image context if available
         image_context = ""
@@ -284,7 +327,8 @@ Response format (JSON):
                                   code_analysis: EnhancedCodeAnalysis,
                                   force_platforms: Optional[str] = None,
                                   image_analysis: dict = None,
-                                  code_dir: Path = None) -> CompleteAnalysis:
+                                  code_dir: Path = None,
+                                  docs_only: bool = False) -> CompleteAnalysis:
         """Run both stages and return combined results"""
 
         try:
@@ -326,7 +370,8 @@ Response format (JSON):
             for platform in platform_detection.estimated_platforms:
                 print(f"Stage 2: Analyzing {platform}...")
                 platform_analyses[platform] = await self.analyze_platform(
-                    platform, doc_summary, code_analysis, platform_detection, image_analysis
+                    platform, doc_summary, code_analysis, platform_detection,
+                    image_analysis, docs_only=docs_only
                 )
                 print(f"{platform} analysis complete")
 
@@ -337,7 +382,8 @@ Response format (JSON):
                 code_analysis,
                 code_dir,
                 doc_summary,
-                impact_scopes  # NEW: Pass impact scopes
+                impact_scopes,  # Pass impact scopes
+                docs_only  # Pass docs_only flag
             )
 
             return CompleteAnalysis(
@@ -479,8 +525,9 @@ DEVOPS ANALYSIS FACTORS:
                     "content": prompt
                 }
             ],
-            "max_tokens": 1500,
+            "max_tokens": 3000,
             "temperature": 0.2,
+            "tools": [],  # Disable tool usage - return text only
         }
 
         # Handle system prompt for OpenAI-style vs Anthropic-style
@@ -510,7 +557,17 @@ DEVOPS ANALYSIS FACTORS:
                 elif isinstance(result['content'], str):
                     content_str = result['content']
             elif 'choices' in result and len(result['choices']) > 0:
-                content_str = result['choices'][0]['message']['content']
+                choice = result['choices'][0]
+                # Check if response has tool_calls instead of content
+                if choice.get('finish_reason') == 'tool_calls':
+                    # Extract tool call arguments as the "content" - the LLM is telling us what it would call
+                    msg = choice['message']
+                    tool_calls = msg.get('tool_calls', [])
+                    if tool_calls:
+                        # Get the first tool call's arguments as pseudo-content
+                        content_str = str(tool_calls[0].get('function', {}).get('arguments', ''))
+                else:
+                    content_str = choice['message'].get('content', '')
 
             if not content_str:
                 raise RuntimeError(f"Could not extract content from response: {result}")
@@ -555,7 +612,10 @@ DEVOPS ANALYSIS FACTORS:
                 content = content[start_idx:end_idx]
 
         # 4. Clean common issues
-        # Fix escaped single quotes (not allowed in JSON)
+        # Note: Only `\'` is genuinely illegal in JSON. Other backslash sequences
+        # (e.g. Windows paths "C:\Users", regex literals "\d+", user-facing strings
+        # containing backslashes) must NOT be rewritten before json.loads, otherwise
+        # legitimate escape sequences inside string values get corrupted.
         content = content.replace("\\'", "'")
 
         # Fix common LLM error: missing colon after key before [ or {
@@ -592,7 +652,8 @@ DEVOPS ANALYSIS FACTORS:
                                    code_analysis: EnhancedCodeAnalysis = None,
                                    code_dir: Path = None,
                                    doc_summary: str = "",
-                                   impact_scopes: Dict[str, ImpactScope] = None) -> Dict[str, int]:
+                                   impact_scopes: Dict[str, ImpactScope] = None,
+                                   docs_only: bool = False) -> Dict[str, int]:
         """
         Calculate story points using the Enhanced Formula from Gemini discussion:
 
@@ -607,12 +668,74 @@ DEVOPS ANALYSIS FACTORS:
         KEY CHANGE: Impact is a TAX (multiplier), not a FILTER (reducer).
         - Small impact doesn't reduce the score for complex tasks
         - Large impact adds overhead for testing/deployment
+
+        DOCS-ONLY MODE: Uses AI's estimated hours from document analysis instead of codebase metrics.
         """
 
         platform_story_points = {}
         platform_scores = {}
         platform_impact_tiers = {}
 
+        # DOCS-ONLY MODE: Use AI's estimated hours from document analysis
+        if docs_only:
+            print("\n[Docs-Only Mode] Using document complexity for story points")
+            total_min_hours = 0
+            total_max_hours = 0
+
+            for platform, analysis in platform_analyses.items():
+                if analysis.estimated_hours:
+                    min_h = analysis.estimated_hours.get('min', 0)
+                    max_h = analysis.estimated_hours.get('max', 0)
+                    avg_h = (min_h + max_h) / 2
+                    total_min_hours += min_h
+                    total_max_hours += max_h
+
+                    # Map hours to story points (rough estimate: 1 SP per 4-8 hours)
+                    sp = self._map_hours_to_story_points(avg_h)
+                    platform_story_points[platform] = sp
+                    print(f"  {platform.upper()}: {min_h}-{max_h}h -> {sp} SP")
+
+            # Calculate overall based on complexity level
+            # Validate complexity up-front so a malformed LLM value doesn't silently
+            # fall through to a default branch and produce inconsistent multipliers.
+            complexity = platform_detection.complexity_level
+            if complexity not in _COMPLEXITY_MULTIPLIER:
+                raise ValueError(
+                    f"Unknown complexity_level {complexity!r}; "
+                    f"expected one of {sorted(_COMPLEXITY_MULTIPLIER)}"
+                )
+            complexity_multiplier = _COMPLEXITY_MULTIPLIER[complexity]
+
+            # Use average hours across platforms, adjusted by complexity
+            platform_count = len(platform_analyses)
+            if platform_count > 0:
+                avg_total_hours = (total_min_hours + total_max_hours) / 2
+                adjusted_hours = avg_total_hours * complexity_multiplier
+                overall_sp = self._map_hours_to_story_points(adjusted_hours)
+            else:
+                # Fallback: use complexity level (same canonical enum as multiplier)
+                overall_sp = _COMPLEXITY_FALLBACK_SP[complexity]
+
+            print(f"  Overall: {overall_sp} SP (based on document complexity)")
+
+            return {
+                "by_platform": platform_story_points,
+                "overall": overall_sp,
+                "base_sum": 0,
+                "integration_multiplier": 1.0,
+                "risk_multiplier": 1.0,
+                "final_score": overall_sp,
+                "platform_impact_tiers": {},
+                "calculation_breakdown": {
+                    "mode": "docs_only",
+                    "complexity_level": complexity,
+                    "complexity_multiplier": complexity_multiplier,
+                    "total_hours": f"{total_min_hours}-{total_max_hours}",
+                    "overall_story_points": overall_sp
+                }
+            }
+
+        # ORIGINAL CODEBASE-BASED LOGIC
         # Step 1: Calculate base platform scores (unchanged - this is the AI complexity assessment)
         for platform, analysis in platform_analyses.items():
             if analysis.factors:
@@ -838,6 +961,36 @@ DEVOPS ANALYSIS FACTORS:
             return 34
         else:
             return 55  # Cap at 55 for very large enterprise features
+
+    def _map_hours_to_story_points(self, hours: float) -> int:
+        """Map estimated hours to Fibonacci story points
+
+        Uses typical velocity: 1 SP = 4-8 hours (using6 hours as average)
+        For docs-only mode where we don't have codebase metrics.
+        """
+        # Typical: 1 SP = 4-8 hours, use 6 as base
+        hours_per_sp = 6.0
+
+        # Fibonacci series: 1, 2, 3, 5, 8, 13, 21, 34, 55
+        # Boundaries chosen so each Fibonacci value is reachable from a unique range.
+        if hours <= 6:
+            return 1
+        elif hours <= 12:
+            return 2
+        elif hours <= 18:
+            return 3
+        elif hours <= 32:
+            return 5
+        elif hours <= 56:
+            return 8
+        elif hours <= 96:
+            return 13
+        elif hours <= 168:
+            return 21
+        elif hours <= 320:
+            return 34
+        else:
+            return 55  # Cap at 55 for very large tasks
 
     def get_context_summary(self, code_dir: Path, doc_summary: str) -> dict:
         """

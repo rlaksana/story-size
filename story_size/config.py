@@ -5,7 +5,7 @@ from typing import Dict, Any
 
 DEFAULT_CONFIG = {
     "llm": {
-        "endpoint": "https://api-eng.andalhr.com/v1/chat/completions",
+        "endpoint": "https://api-eng.andalsoftware.com/v1/chat/completions",
         "api_key_env": "ZAI_API_KEY",
         "model": "common",
     },
@@ -73,7 +73,7 @@ DEFAULT_CONFIG = {
         "include_dependencies_analysis": True,
         "max_prompt_length": 500000,
         "temperature": 0.2,
-        "max_tokens": 1500
+        "max_tokens": 3000
     },
 
     # Hours estimation configuration
@@ -268,7 +268,7 @@ def save_sample_config(output_path: Path):
             "max_key_files_per_platform": 5,
             "include_dependencies_analysis": True,
             "temperature": 0.2,
-            "max_tokens": 1500
+            "max_tokens": 3000
         }
     }
 
